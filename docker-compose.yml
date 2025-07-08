@@ -1,80 +1,49 @@
+version: "3.9"
+
 services:
   qdrant:
-    image: qdrant/qdrant:latest
-    restart: unless-stopped
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
+    image: qdrant/qdrant:dev
+    ports: ["6333:6333"]
+    volumes: ["qdrant_data:/qdrant/storage"]
+    healthcheck: {test: ["CMD", "curl", "-f", "http://localhost:6333/"], interval: 10s, retries: 3}
+
+  ollama:                           # optional; can be disabled
+    image: ollama/ollama:0.1.32
+    ports: ["11434:11434"]
+    volumes: ["ollama_data:/root/.ollama"]
 
   api:
     build:
       context: ./root
       dockerfile: Dockerfile.api
-    image: sentio-api:local
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
     environment:
       - JINA_API_KEY=${JINA_API_KEY}
       - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_URL=http://host.docker.internal:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-phi3.5:3.8b}
-      - COLLECTION_NAME=Sentio_docs_v2
-      - TOP_K_RERANK=${TOP_K_RERANK:-5}
-      - SENTIO_MIN_SCORE=${SENTIO_MIN_SCORE:-0.05}
-      - SENTIO_TOP_K=${SENTIO_TOP_K:-6}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    depends_on:
-      qdrant:
-        condition: service_started
-    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - ./root:/app
-      - ./logs:/app/logs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - USE_AZURE=${USE_AZURE}
+      - COLLECTION_NAME=${COLLECTION_NAME}
+    ports: ["8000:8000"]
+    depends_on: ["qdrant"]
 
-  webui:
-    image: ghcr.io/open-webui/open-webui:latest
-    restart: unless-stopped
-    ports:
-      - "3001:8080"
-    environment:
-      - OPENAI_API_BASE=http://api:8000
-      - OPENAI_API_KEY=sk-dummy-key
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-    volumes:
-      - webui_data:/app/backend/data
-    depends_on:
-      - api
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  # Used only for initial data upload
-  ingest:
+  worker:
     build:
       context: ./root
-      dockerfile: Dockerfile.api
-    image: sentio-ingest:local
-    profiles: ["tools"]  # Runs only when the profile is explicitly specified
+      dockerfile: Dockerfile.worker
     environment:
       - JINA_API_KEY=${JINA_API_KEY}
       - QDRANT_URL=http://qdrant:6333
-      - COLLECTION_NAME=Sentio_docs_v2
-      - VECTOR_SIZE=2048
-    volumes:
-      - ./root/data/raw:/app/data/raw:ro
-    command: ["python", "-m", "src.scripts.ingest", "--collection", "Sentio_docs_v2", "--data_dir", "/app/data/raw"]
-    depends_on:
-      qdrant:
-        condition: service_started
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - USE_AZURE=${USE_AZURE}
+      - COLLECTION_NAME=${COLLECTION_NAME}
+    depends_on: ["qdrant"]
+
+  ui:
+    build:
+      context: ./root
+      dockerfile: Dockerfile.ui      # см. пример из предыдущего сообщения
+    environment:
+      - SENTIO_BACKEND_URL=http://api:8000
+    ports: ["8501:8501"]
+    depends_on: ["api"]
 
 volumes:
   qdrant_data:
-    name: sentio_qdrant_data
-  webui_data:
-    name: sentio_webui_data 
+  ollama_data: 
