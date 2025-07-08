@@ -232,4 +232,4 @@ After deployment, use the FQDN provided by the script (e.g., `http://sentio-api-
 
 ## 8. License & Contributing
 
-Sentio is released under the MIT License. Contributions are welcome—please include tests and adhere to standard code style. 
+Sentio is released under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0). Commercial use without explicit permission is strictly prohibited. Contributions are welcome—please include tests and adhere to standard code style. 
