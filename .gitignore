@@ -38,3 +38,5 @@ logs/
 debug/
 infra/azure/deploy-api.sh
 infra/azure/deploy-worker.sh
+plan.md
+run.md
