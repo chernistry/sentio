@@ -1,0 +1,40 @@
+.archive/
+.archive
+.idea
+.dev
+.env
+data/raw
+warp/
+keys.csv
+root/data/raw/
+prep/
+.env.azure
+.DS_Store
+.pyc*
+*pycache*/
+.log
+/codesamples/
+.tar.gz
+.tar.xz
+.tar.bz2
+.tar.wim
+.tar.iso
+.tar.lzma
+.tar.lzo
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.class
+
+# System files
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Debug files
+debug/
+infra/azure/deploy-api.sh
+infra/azure/deploy-worker.sh

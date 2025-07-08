@@ -1,0 +1,31 @@
+# Common ignores
+.git
+.gitignore
+.idea
+.vscode
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+**/node_modules
+Sentio-ui/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build artifacts
+dist/
+build/
+.next/
+coverage/ 

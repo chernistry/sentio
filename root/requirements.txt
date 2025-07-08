@@ -1,0 +1,32 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+qdrant-client==1.8.0
+llama-index==0.10.25
+llama-index-llms-ollama==0.1.3
+llama-index-embeddings-jinaai==0.1.2
+pydantic==2.7.1
+python-dotenv==1.0.1
+httpx==0.27.0
+numpy>=1.25,<2.0
+scikit-learn>=1.4,<1.7
+tqdm>=4.66,<5.0
+llama-index-vector-stores-qdrant==0.1.4
+sentence-transformers>=2.7,<3.0
+prometheus-fastapi-instrumentator==6.1.0
+duckduckgo-search>=8.0,<9.0
+# Brave Search HTTP used directly; no extra dependency 
+aiohttp>=3.9,<4.0
+beautifulsoup4>=4.12,<5.0
+trafilatura>=1.6,<2.0
+ollama
+requests 
+diskcache>=5.6,<6.0
+pypdf 
+
+# Azure dependencies
+azure-storage-queue>=12.6.0,<13.0.0
+azure-cosmos>=4.5.0,<5.0.0
+opencensus-ext-azure>=1.1.9,<2.0.0
+opencensus-ext-logging>=0.1.0,<0.2.0
+opencensus-ext-requests>=0.8.0,<0.9.0
+opencensus-ext-sqlalchemy>=0.1.0,<0.2.0 

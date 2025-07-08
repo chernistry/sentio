@@ -1,0 +1,125 @@
+apiVersion: 2023-05-01
+name: sentio-api
+type: Microsoft.App/containerApps
+location: westeurope
+properties:
+  environmentId: /subscriptions/{subscription-id}/resourceGroups/rg-sentio-prod/providers/Microsoft.App/managedEnvironments/ca-env-sentio
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 8000
+      transport: http
+      allowInsecure: false
+      traffic:
+        - latestRevision: true
+          weight: 100
+    secrets:
+      - name: jina-api-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/jina-api-key
+      - name: qdrant-api-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/qdrant-api-key
+      - name: cosmos-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/cosmos-key
+      - name: openrouter-api-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/openrouter-api-key
+      - name: queue-connection-string
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/queue-connection-string
+  template:
+    containers:
+      - name: sentio-api
+        image: ghcr.io/{github-username}/sentio-api:latest
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: USE_AZURE
+            value: "true"
+          - name: JINA_API_KEY
+            secretRef: jina-api-key
+          - name: QDRANT_URL
+            value: https://1b8ab421-90a1-47d6-bd52-ac8eab597146.eu-central-1-0.aws.cloud.qdrant.io
+          - name: QDRANT_API_KEY
+            secretRef: qdrant-api-key
+          - name: OPENROUTER_API_KEY
+            secretRef: openrouter-api-key
+          - name: COSMOS_ACCOUNT_NAME
+            value: cosmos-sentio
+          - name: COSMOS_KEY
+            secretRef: cosmos-key
+          - name: COSMOS_DATABASE_NAME
+            value: sentio-db
+          - name: COSMOS_CONTAINER_NAME
+            value: metadata
+          - name: AZURE_QUEUE_CONNECTION_STRING
+            secretRef: queue-connection-string
+          - name: AZURE_QUEUE_NAME
+            value: submissions
+          - name: LOG_LEVEL
+            value: INFO
+          - name: ENABLE_METRICS
+            value: "true"
+          - name: ENABLE_CORS
+            value: "true"
+    scale:
+      minReplicas: 1
+      maxReplicas: 3
+---
+apiVersion: 2023-05-01
+name: sentio-worker
+type: Microsoft.App/containerApps
+location: westeurope
+properties:
+  environmentId: /subscriptions/{subscription-id}/resourceGroups/rg-sentio-prod/providers/Microsoft.App/managedEnvironments/ca-env-sentio
+  configuration:
+    activeRevisionsMode: Single
+    secrets:
+      - name: jina-api-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/jina-api-key
+      - name: qdrant-api-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/qdrant-api-key
+      - name: cosmos-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/cosmos-key
+      - name: openrouter-api-key
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/openrouter-api-key
+      - name: queue-connection-string
+        keyVaultUrl: https://kv-sentio.vault.azure.net/secrets/queue-connection-string
+  template:
+    containers:
+      - name: sentio-worker
+        image: ghcr.io/{github-username}/sentio-worker:latest
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: USE_AZURE
+            value: "true"
+          - name: JINA_API_KEY
+            secretRef: jina-api-key
+          - name: QDRANT_URL
+            value: https://1b8ab421-90a1-47d6-bd52-ac8eab597146.eu-central-1-0.aws.cloud.qdrant.io
+          - name: QDRANT_API_KEY
+            secretRef: qdrant-api-key
+          - name: OPENROUTER_API_KEY
+            secretRef: openrouter-api-key
+          - name: COSMOS_ACCOUNT_NAME
+            value: cosmos-sentio
+          - name: COSMOS_KEY
+            secretRef: cosmos-key
+          - name: COSMOS_DATABASE_NAME
+            value: sentio-db
+          - name: COSMOS_CONTAINER_NAME
+            value: metadata
+          - name: AZURE_QUEUE_CONNECTION_STRING
+            secretRef: queue-connection-string
+          - name: AZURE_QUEUE_NAME
+            value: submissions
+          - name: LOG_LEVEL
+            value: INFO
+          - name: QUEUE_POLL_INTERVAL_SECONDS
+            value: "10"
+          - name: MESSAGE_VISIBILITY_TIMEOUT
+            value: "300"
+    scale:
+      minReplicas: 1
+      maxReplicas: 2 

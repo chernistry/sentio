@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "westeurope"
+    },
+    "containerAppEnvId": {
+      "value": "/subscriptions/7f523190-d4bb-48e8-aed6-2d8354976c94/resourceGroups/rg-sentio-prod/providers/Microsoft.App/managedEnvironments/ca-env-sentio"
+    },
+    "containerImage": {
+      "value": "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+    },
+    "containerAppName": {
+      "value": "sentio-api"
+    },
+    "containerRegistryServer": {
+      "value": "mcr.microsoft.com"
+    },
+    "containerRegistryUsername": {
+      "value": ""
+    },
+    "environmentVariables": {
+      "value": [
+        {
+          "name": "STORAGE_ACCOUNT_NAME",
+          "value": "stgsentioq7hf6n7un3lae"
+        },
+        {
+          "name": "COSMOS_ACCOUNT_NAME",
+          "value": "cosmos-sentio"
+        }
+      ]
+    },
+    "secretEnvironmentVariables": {
+      "value": []
+    }
+  }
+} 

@@ -1,0 +1,80 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    if: false
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        cd root
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov locust
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        
+    - name: Run unit tests
+      run: |
+        cd root
+        pytest tests/test_api.py -v
+        
+    - name: Run load tests (smoke test only)
+      run: |
+        cd root
+        # Run Locust in headless mode for a quick smoke test
+        locust -f tests/locustfile.py --host=http://localhost:8000 --headless -u 1 -r 1 --run-time 10s
+      continue-on-error: true  # Don't fail the workflow if load tests fail
+      
+    - name: Generate test coverage report
+      run: |
+        cd root
+        pytest --cov=. tests/test_api.py --cov-report=xml
+        
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./root/coverage.xml
+        fail_ci_if_error: false
+        
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+    if: false
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        cd root
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        
+    - name: Run Azure integration tests
+      env:
+        AZURE_COSMOS_CONNECTION_STRING: ${{ secrets.AZURE_COSMOS_CONNECTION_STRING }}
+        AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        APPINSIGHTS_CONNECTION_STRING: ${{ secrets.APPINSIGHTS_CONNECTION_STRING }}
+      run: |
+        cd root
+        pytest tests/test_azure_integration.py -v 

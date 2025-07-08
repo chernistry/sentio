@@ -1,0 +1,161 @@
+#!/bin/bash
+# Deploy only Sentio API to Azure Container Instances
+
+set -e
+
+# --- Configuration Variables ---
+# These variables define the Azure resources and deployment specifics.
+# They should be set as environment variables before running this script,
+# or loaded from a .env file (e.g., by sourcing it).
+#
+# Example usage:
+# export RESOURCE_GROUP="rg-sentio-prod"
+# export LOCATION="westeurope"
+# export GITHUB_USERNAME="your-github-username" # Your GitHub username for GHCR image pull
+# export API_CONTAINER_NAME="sentio-api-container"
+# export API_DNS_LABEL="sentio-api-label"
+# export API_SHARE_NAME="sentio-api-share"
+
+# Validate that required variables are set. Script will exit if not.
+: "${RESOURCE_GROUP:?Error: RESOURCE_GROUP not set. Please set it as an environment variable.}"
+: "${LOCATION:?Error: LOCATION not set. Please set it as an environment variable.}"
+: "${GITHUB_USERNAME:?Error: GITHUB_USERNAME not set. Please set it as an environment variable.}"
+: "${API_CONTAINER_NAME:?Error: API_CONTAINER_NAME not set. Please set it as an environment variable.}"
+: "${API_DNS_LABEL:?Error: API_DNS_LABEL not set. Please set it as an environment variable.}"
+: "${API_SHARE_NAME:?Error: API_SHARE_NAME not set. Please set it as an environment variable.}"
+
+# Get current Azure subscription ID
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+# Load GitHub Container Registry (GHCR) credentials from ../../root/.env
+# This file should contain:
+# GITHUB_USERNAME="your-github-username"
+# GHCR_PAT_WRITE="your-github-personal-access-token-with-packages-write-scope"
+if [ -f "../../root/.env" ]; then
+  source "../../root/.env"
+  # GHCR_USERNAME is used for login, GITHUB_USERNAME for the image path.
+  # Assuming they are the same for simplicity.
+  GHCR_USERNAME="${GITHUB_USERNAME}"
+  GHCR_PASSWORD="${GHCR_PAT_WRITE}"
+  if [ -z "$GHCR_USERNAME" ] || [ -z "$GHCR_PASSWORD" ]; then
+    echo "Error: GITHUB_USERNAME or GHCR_PAT_WRITE not found in ../../root/.env."
+    exit 1
+  fi
+else
+  echo "Error: ../../root/.env file not found. Please create it and set GITHUB_USERNAME and GHCR_PAT_WRITE."
+  exit 1
+fi
+
+# Check if logged in to Azure CLI
+echo "Checking Azure CLI login..."
+az account show > /dev/null || { echo "Please login to Azure CLI using 'az login'"; exit 1; }
+
+# Get Key Vault name from infrastructure deployment outputs
+# This assumes a prior infrastructure deployment (e.g., via deploy-infra.sh)
+KEY_VAULT_NAME=$(az deployment group show \
+  --resource-group "$RESOURCE_GROUP" \
+  --name main \
+  --query properties.outputs.keyVaultName.value \
+  -o tsv)
+
+if [ -z "$KEY_VAULT_NAME" ]; then
+  echo "Error: Could not retrieve Key Vault name from deployment. Ensure infrastructure is deployed and RESOURCE_GROUP is correct."
+  exit 1
+fi
+
+# Fetch secrets from Key Vault
+echo "Fetching secrets from Key Vault: $KEY_VAULT_NAME..."
+JINA_API_KEY=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "jina-api-key" --query "value" -o tsv)
+QDRANT_API_KEY=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "qdrant-api-key" --query "value" -o tsv)
+OPENROUTER_API_KEY=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "openrouter-api-key" --query "value" -o tsv)
+QUEUE_CONNECTION_STRING=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "queue-connection-string" --query "value" -o tsv)
+QDRANT_URL=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "qdrant-url" --query "value" -o tsv)
+
+echo "Using Qdrant URL: $QDRANT_URL"
+
+# Get storage account name from infrastructure deployment outputs
+STORAGE_ACCOUNT_NAME=$(az deployment group show \
+  --resource-group "$RESOURCE_GROUP" \
+  --name main \
+  --query properties.outputs.storageAccountName.value \
+  -o tsv)
+
+if [ -z "$STORAGE_ACCOUNT_NAME" ]; then
+  echo "Error: Could not retrieve Storage Account name from deployment. Ensure infrastructure is deployed and RESOURCE_GROUP is correct."
+  exit 1
+fi
+
+# Get storage key for the file share
+STORAGE_KEY=$(az storage account keys list --resource-group "$RESOURCE_GROUP" --account-name "$STORAGE_ACCOUNT_NAME" --query "[0].value" -o tsv)
+
+if [ -z "$STORAGE_KEY" ]; then
+  echo "Error: Could not retrieve Storage Account key. Ensure you have appropriate permissions."
+  exit 1
+fi
+
+# Check and create API file share if it doesn't exist
+echo "Checking for API file share: $API_SHARE_NAME..."
+API_SHARE_EXISTS=$(az storage share exists --name "$API_SHARE_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$STORAGE_KEY" --query exists -o tsv)
+if [ "$API_SHARE_EXISTS" != "true" ]; then
+  echo "Creating API file share: $API_SHARE_NAME..."
+  az storage share create --name "$API_SHARE_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --account-key "$STORAGE_KEY" --output none
+else
+  echo "API file share $API_SHARE_NAME already exists."
+fi
+
+# Deploy API container instance
+echo "Deploying Sentio API container instance: $API_CONTAINER_NAME..."
+az container create \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$API_CONTAINER_NAME" \
+  --image "ghcr.io/$GITHUB_USERNAME/sentio-api:latest" \
+  --registry-login-server "ghcr.io" \
+  --registry-username "$GHCR_USERNAME" \
+  --registry-password "$GHCR_PASSWORD" \
+  --ports 8000 \
+  --dns-name-label "$API_DNS_LABEL" \
+  --cpu 1 \
+  --memory 2 \
+  --os-type Linux \
+  --restart-policy Always \
+  --environment-variables \
+    USE_AZURE=true \
+    QDRANT_URL="$QDRANT_URL" \
+    COLLECTION_NAME=Sentio_docs_v2 \
+    AZURE_QUEUE_NAME=submissions \
+    LOG_LEVEL=INFO \
+    ENABLE_METRICS=true \
+    ENABLE_CORS=true \
+    OPENROUTER_URL=https://openrouter.ai/api/v1 \
+    OPENROUTER_MODEL=deepseek/deepseek-r1-0528-qwen3-8b:free \
+  --secure-environment-variables \
+    JINA_API_KEY="$JINA_API_KEY" \
+    QDRANT_API_KEY="$QDRANT_API_KEY" \
+    OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+    AZURE_QUEUE_CONNECTION_STRING="$QUEUE_CONNECTION_STRING" \
+  --azure-file-volume-account-name "$STORAGE_ACCOUNT_NAME" \
+  --azure-file-volume-account-key "$STORAGE_KEY" \
+  --azure-file-volume-share-name "$API_SHARE_NAME" \
+  --azure-file-volume-mount-path "/app/data"
+
+# Wait for API container to be provisioned
+echo "Waiting for API container to be provisioned..."
+# The 'az container wait' command can be used for a more robust wait,
+# but might require longer timeouts depending on provisioning time.
+# Example: az container wait --resource-group "$RESOURCE_GROUP" --name "$API_CONTAINER_NAME" --timeout 300 --created
+echo "Waiting 30 seconds for the API container to start..."
+sleep 30
+
+API_STATE=$(az container show \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$API_CONTAINER_NAME" \
+  --query "properties.provisioningState" \
+  --output tsv)
+echo "API container state: $API_STATE"
+
+API_FQDN=$(az container show --resource-group "$RESOURCE_GROUP" --name "$API_CONTAINER_NAME" --query ipAddress.fqdn -o tsv)
+API_URL="http://$API_FQDN:8000"
+
+echo "✅ API deployment completed!"
+echo "API URL: $API_URL"
+echo "API Docs: $API_URL/docs"
