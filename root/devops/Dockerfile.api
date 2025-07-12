@@ -1,0 +1,58 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN apt-get update && \
+    apt-get install -y netcat-openbsd curl && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir requests
+
+# Copy the entire root directory to preserve package structure for 'root.src.*' imports
+COPY root/ ./root/
+# Copy environment file for runtime configuration (used by Pydantic)
+COPY .env ./
+# Copy the application code
+COPY root/src/ ./src/
+COPY root/app.py ./app.py
+COPY root/cli/ ./cli/
+COPY root/keys.csv ./keys.csv
+COPY plugins/ ./plugins/
+COPY root/devops/wait-for-it.sh ./wait-for-it.sh
+RUN chmod +x ./wait-for-it.sh
+
+# Create necessary directories
+RUN mkdir -p /app/logs
+RUN mkdir -p /app/data/raw
+
+# Set up environment variable for Python path
+ENV PYTHONPATH=/app
+ENV DOCKER_ENV=true
+ENV USE_AZURE=true
+
+# Set default env vars (will be overridden by runtime environment)
+ENV QDRANT_URL=http://qdrant:6333
+ENV QDRANT_API_KEY=""
+ENV QDRANT_API_KEY_HEADER="api-key"
+ENV EMBEDDING_MODEL_API_KEY=""
+ENV APP_HOST=0.0.0.0
+ENV APP_PORT=8000
+ENV LOG_LEVEL=INFO
+
+# Generic Chat LLM configuration (OpenAI-compatible)
+ENV CHAT_LLM_API_KEY=""
+ENV CHAT_LLM_BASE_URL="https://openrouter.ai/api/v1"
+ENV CHAT_LLM_MODEL="deepseek/deepseek-chat-v3-0324:free"
+
+# Azure CLI installation (optional, uncomment if needed)
+# RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+# Setup logging directories
+RUN mkdir -p /app/logs
+
+# Expose port for API
+EXPOSE 8000
+
+# The CMD uses environment variables for host and port
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"] 

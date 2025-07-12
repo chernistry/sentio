@@ -1,0 +1,81 @@
+# Sentio RAG System - Docker Compose Configuration
+# =============================================
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes: ["qdrant_data:/qdrant/storage"]
+    healthcheck: {test: ["CMD", "curl", "-f", "http://localhost:6333/"], interval: 10s, retries: 3}
+
+  api:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDING_MODEL_API_KEY=${EMBEDDING_MODEL_API_KEY}
+      - QDRANT_URL=http://qdrant:6333
+      - USE_AZURE=${USE_AZURE}
+      - CHAT_LLM_API_KEY=${CHAT_LLM_API_KEY}
+      - CHAT_LLM_BASE_URL=${CHAT_LLM_BASE_URL}
+      - CHAT_LLM_MODEL=${CHAT_LLM_MODEL}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
+      - BEAM_EMBEDDING_BASE_URL=${BEAM_EMBEDDING_BASE_URL}
+      - BEAM_MODE=${BEAM_MODE:-local}
+      # BEAM_* variables passed via env_file (.env)
+    ports: ["8000:8000"]
+    depends_on: ["qdrant"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.worker
+    environment:
+      - EMBEDDING_MODEL_API_KEY=${EMBEDDING_MODEL_API_KEY}
+      - QDRANT_URL=http://qdrant:6333
+      - USE_AZURE=${USE_AZURE}
+      - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
+      - BEAM_EMBEDDING_BASE_URL=${BEAM_EMBEDDING_BASE_URL}
+      - BEAM_MODE=${BEAM_MODE:-local}
+      # BEAM_* variables passed via env_file (.env)
+    env_file:
+      - .env
+    depends_on: ["qdrant"]
+
+  ui:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.ui
+    environment:
+      - SENTIO_BACKEND_URL=http://api:8000
+    ports: ["8501:8501"]
+    depends_on: ["api"]
+
+  ingest:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDING_MODEL_API_KEY=${EMBEDDING_MODEL_API_KEY}
+      - QDRANT_URL=http://qdrant:6333
+      - USE_AZURE=${USE_AZURE}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
+      - BEAM_EMBEDDING_BASE_URL=${BEAM_EMBEDDING_BASE_URL}
+      - BEAM_MODE=${BEAM_MODE:-local}
+      # BEAM_* variables passed via env_file (.env)
+      - DOCKER_ENV=true
+    volumes:
+      - ./root/data:/app/data
+      - ./root/src:/app/src
+    depends_on: ["qdrant"]
+    entrypoint: ["python", "-m", "root.src.utils.docker_wrapper", "--data_dir", "/app/data/raw", "--qdrant_url", "http://qdrant:6333", "--collection", "${COLLECTION_NAME:-Sentio_docs}"]
+
+volumes:
+  qdrant_data:

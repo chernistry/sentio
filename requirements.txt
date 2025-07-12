@@ -1,0 +1,44 @@
+# Core dependencies for the main application
+aiohttp
+fastapi
+httpx
+json5
+llama_index
+nest_asyncio
+numpy==1.26.4  # Torch wheels compiled against NumPy 1.x; 2.x causes _ARRAY_API error on import
+opencensus
+prometheus_fastapi_instrumentator
+psutil
+pydantic
+pydantic_settings
+PyPDF2
+qdrant_client>=1.14.0,<2.0  # Requires >=1.14 for IDF_EMBEDDING_MODELS constant, still compatible with Qdrant v1.8 server
+Requests
+rich
+streamlit
+transformers>=4.53.2
+typing_extensions
+uvicorn
+python-dotenv
+llama-index-vector-stores-qdrant
+beam
+langchain_community
+# Testing dependencies
+pytest
+pytest-asyncio
+testcontainers[qdrant]
+fastembed
+# # Optional dependencies for plugins (not required for core functionality)
+# # Install these only if you want to use specific plugins
+# beautifulsoup4  # web_page_fetcher.py
+# diskcache  # Used in various plugins for caching
+# duckduckgo_search  # web_search.py
+# pyserini  # Optional for BM25 search
+rank_bm25  # For hybrid search functionality
+# scikit_learn  # Used in various plugins for ML operations
+# sentence_transformers  # local_embedding.py
+# torch  # Required by sentence_transformers
+# tqdm  # Progress reporting in various plugins
+# trafilatura  # web_page_fetcher.py
+# transformers  # transformers_reranker.py, bge_reranker.py, etc.
+# typer  # CLI tools
