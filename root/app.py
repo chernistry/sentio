@@ -839,32 +839,6 @@ async def health_check() -> HealthResponse:
     )
 
 
-# ---------------- Logs Endpoint -------------------------------------------
-@app.get("/logs", tags=["System"])
-async def logs_handler(tail: int = 200) -> Dict[str, List[str]]:
-    """Return the last *tail* log lines from ``logs/Sentio.log``.
-
-    A small helper for the Streamlit UI so that users can inspect ingestion and
-    chat processing activity in real time without shell access.
-    """
-    log_file = os.path.join("logs", "Sentio.log")
-
-    # When the file does not exist (e.g. first launch or container without
-    # volume), we return an empty list instead of raising to keep the UI clean.
-    if not os.path.exists(log_file):
-        return {"lines": []}
-
-    try:
-        with open(log_file, "r", encoding="utf-8", errors="replace") as fh:
-            lines = fh.readlines()
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Failed to read log file: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to read logs") from exc
-
-    # Slice safely even if *tail* exceeds total line count.
-    return {"lines": lines[-abs(tail):]}
-
-
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat_handler(request: ChatRequest) -> ChatResponse:
     """

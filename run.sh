@@ -198,23 +198,44 @@ run_azure_infra_control() {
 update_azure_apps() {
   echo -e "${GREEN}• Updating Azure Container Apps...${NC}"
   
-  # Pull latest images from GHCR
-  echo -e "${GREEN}• Checking for new container images...${NC}"
+  local RESOURCE_GROUP="rg-sentio-free"
+  local APPS=("ca-sentio-worker" "ca-sentio-api" "ca-sentio-ui")
   
-  # First restart worker as it had issues
-  echo -e "${GREEN}• Restarting Worker container app...${NC}"
-  az containerapp revision restart --resource-group rg-sentio-free --name ca-sentio-worker --revision ca-sentio-worker--0000001 || echo -e "${YELLOW}Warning: Worker restart failed, may not have latest image${NC}"
-  
-  # Then restart API and UI if needed
-  echo -e "${GREEN}• Restarting API container app...${NC}"
-  az containerapp revision restart --resource-group rg-sentio-free --name ca-sentio-api --revision ca-sentio-api--0000001 || echo -e "${YELLOW}Warning: API restart failed${NC}"
-  
-  echo -e "${GREEN}• Restarting UI container app...${NC}"
-  az containerapp revision restart --resource-group rg-sentio-free --name ca-sentio-ui --revision ca-sentio-ui--0000001 || echo -e "${YELLOW}Warning: UI restart failed${NC}"
-  
+  # Ensure logged in
+  if ! az account show &>/dev/null; then
+    echo -e "${RED}Not logged in to Azure CLI. Run 'az login' first.${NC}"
+    return 1
+  fi
+
+  # Iterate over each Container App and restart its latest revision
+  for APP in "${APPS[@]}"; do
+    echo -e "${GREEN}• Processing $APP...${NC}"
+
+    # Fetch latest revision name (by creation time)
+    LATEST_REV=$(az containerapp revision list --resource-group "$RESOURCE_GROUP" --name "$APP" \
+      --query "sort_by([],&createdTime)[-1].name" -o tsv 2>/dev/null || echo "")
+
+    if [[ -z "$LATEST_REV" ]]; then
+      echo -e "${YELLOW}  ↳ No revisions found for $APP, skipping restart${NC}"
+      continue
+    fi
+
+    echo -e "  ↳ Restarting revision $LATEST_REV"
+    if az containerapp revision restart --resource-group "$RESOURCE_GROUP" --name "$APP" --revision "$LATEST_REV"; then
+      echo -e "  ✓ Restarted $APP revision $LATEST_REV"
+    else
+      echo -e "${YELLOW}  ⚠️  Failed to restart $APP revision $LATEST_REV${NC}"
+    fi
+  done
+
+  # After restart ensure apps are set to min replicas >=1 for API/UI
+  echo -e "${GREEN}• Ensuring API and UI have at least 1 replica...${NC}"
+  az containerapp update --resource-group "$RESOURCE_GROUP" --name "ca-sentio-api" --min-replicas 1 >/dev/null || true
+  az containerapp update --resource-group "$RESOURCE_GROUP" --name "ca-sentio-ui" --min-replicas 1 >/dev/null || true
+
   echo -e "${GREEN}• Starting all container apps...${NC}"
   run_azure_infra_control "start"
-  
+
   echo -e "${GREEN}✅ Azure Container Apps updated!${NC}"
 }
 
