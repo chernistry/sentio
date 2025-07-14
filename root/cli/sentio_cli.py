@@ -403,6 +403,11 @@ def cmd_azure_prepare(version: str = typer.Option("v2.1.0", "--version", "-v")) 
 @cli.command("flush")
 def cmd_flush(force: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation")) -> None:
     """Delete all Qdrant collections to start from a clean slate."""
+
+    # Ensure .env variables are loaded so that the command also works when
+    # invoked directly via ``run.sh flush`` before any stack is running.
+    load_env()
+
     # Get Qdrant URL and API key from environment
     qdrant_url = os.environ.get("QDRANT_URL")
     qdrant_api_key = os.environ.get("QDRANT_API_KEY")

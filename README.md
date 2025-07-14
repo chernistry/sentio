@@ -157,10 +157,22 @@ graph TD
    Run the following command to build and start all services:
 
    ```bash
+   ./run.sh docker up
+   ```
+   
+   Or use the standard Docker Compose command:
+
+   ```bash
    docker compose up -d --build
    ```
 
    You can monitor the logs to see the progress of all services:
+
+   ```bash
+   ./run.sh logs
+   ```
+
+   Or:
 
    ```bash
    docker compose logs -f
@@ -223,11 +235,18 @@ This project uses GitHub Actions for automated Docker image build and publishing
 
 3. **Azure Deployment**:
    - After image build, you can deploy to Azure Container Apps
-   - `./infra/azure/scripts/deploy-apps.sh`
+   - `./run.sh infra full-deploy` for complete deployment
+   - `./run.sh infra update` to update existing deployment with new images
 
 ### Local Build
 
-To build images locally, use:
+To build images locally, you can use:
+
+```bash
+./run.sh build
+```
+
+For multi-architecture builds:
 
 ```bash
 ./infra/azure/scripts/build-multi-arch.sh
@@ -252,12 +271,50 @@ To build images locally, use:
 ## Running with docker-compose
 
 ```bash
-docker-compose up -d
+./run.sh docker up
+```
+
+Or directly:
+
+```bash
+docker compose up -d
 ```
 
 ## Environment Variables
 
 Main environment variables are defined in `.env`. See `.env.example` for a sample configuration.
+
+## Azure Deployment
+
+For deploying to Azure, the project includes several scripts:
+
+1. **Full Automated Deployment**:
+   ```bash
+   ./run.sh infra full-deploy
+   ```
+   This will:
+   - Deploy base infrastructure (Key Vault, Storage, Container Apps)
+   - Set up secrets in Key Vault
+   - Build and push multi-architecture Docker images
+   - Deploy Container Apps
+   - Start all services
+
+2. **Update Existing Deployment**:
+   ```bash
+   ./run.sh infra update
+   ```
+   This will pull the latest images from GHCR and restart Container Apps.
+
+3. **Individual Deployment Steps**:
+   ```bash
+   ./run.sh infra deploy      # Deploy infrastructure
+   ./run.sh infra secrets     # Set up secrets
+   ./run.sh infra apps        # Deploy Container Apps
+   ./run.sh infra start       # Start services
+   ./run.sh infra stop        # Stop services
+   ./run.sh infra status      # Check status
+   ./run.sh infra destroy     # Remove resources
+   ```
 
 ## Deployment Testing
 
@@ -348,7 +405,7 @@ The default configuration uses cloud services for embedding and LLM generation:
 
 * **Embedding**: Jina AI Cloud API
 * **LLM**: OpenRouter API (with various model options)
-* **Infrastructure**: Azure Container Instances
+* **Infrastructure**: Azure Container Apps
 
 ### 6.2 Private Infrastructure
 
@@ -432,6 +489,24 @@ Sentio includes a unified CLI for common maintenance and development tasks:
 
 # Check environment variables
 ./run.sh env
+
+# Docker commands
+./run.sh docker up [service]      # Start Docker containers
+./run.sh docker down              # Stop Docker containers
+./run.sh docker build [service]   # Build Docker images sequentially
+./run.sh docker bake [service]    # Build Docker images in parallel
+
+# Azure infrastructure commands
+./run.sh infra deploy             # Deploy core infrastructure
+./run.sh infra secrets            # Setup Key-Vault secrets
+./run.sh infra apps               # Deploy Container Apps
+./run.sh infra build-images       # Build & push multi-arch images
+./run.sh infra full-deploy        # Complete deployment (all steps)
+./run.sh infra start              # Start Container Apps
+./run.sh infra stop               # Stop Container Apps
+./run.sh infra update             # Update with latest images
+./run.sh infra status             # Show resource status
+./run.sh infra destroy            # Destroy resources
 ```
 
 ---

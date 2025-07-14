@@ -156,27 +156,26 @@ def ask_question(question: str, top_k: int = 3, temperature: float = 0.7) -> Dic
 
 tabs = st.tabs(["📤 Upload Documents", "💬 Ask Questions"])
 
+# --- Helper -----------------------------------------------------------------
+# Display backend logs in an expandable panel. Uses a small helper function to
+# query the new `/logs` endpoint of the FastAPI backend. This keeps UI code
+# DRY and makes it trivial to embed the viewer in multiple tabs.
+
+
+def _get_backend_logs(tail: int = 200) -> List[str]:
+    """Return last *tail* log lines from the Sentio API service."""
+    try:
+        res = requests.get(f"{BACKEND_URL}/logs?tail={tail}", timeout=10)
+        if res.status_code == 200:
+            return res.json().get("lines", [])
+        st.warning(f"Failed to fetch logs: {res.status_code}")
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"Error fetching logs: {exc}")
+    return []
+
 # ------------------ Tab 1: Upload Documents ------------------
 with tabs[0]:
     st.header("Upload documents to your knowledge base")
-    
-    # Add Clear Collection button with confirmation
-    col_clear = st.columns([3, 1])
-    with col_clear[1]:
-        if st.button("🗑️ Clear Collection", key="clear_btn", type="primary", use_container_width=True):
-            confirm = st.warning("⚠️ This will delete ALL documents. Continue?")
-            col_confirm = st.columns([1, 1])
-            with col_confirm[0]:
-                if st.button("✅ Yes", key="confirm_clear"):
-                    with st.spinner("Clearing collection..."):
-                        try:
-                            result = clear_collection()
-                            st.success(f"✅ Collection cleared successfully: {result.get('message', 'Done')}")
-                        except Exception as e:
-                            st.error(f"Failed to clear collection: {e}")
-            with col_confirm[1]:
-                if st.button("❌ No", key="cancel_clear"):
-                    st.experimental_rerun()
     
     # File uploader 
     uploaded_files = st.file_uploader(
@@ -202,6 +201,18 @@ with tabs[0]:
             progress.empty()
             st.success(f"✅ Ingestion completed: {success} success, {failed} failed.")
 
+    # ---------------- Logs Panel -------------------------------------------
+    with st.expander("📜 Backend Logs", expanded=False):
+        if st.button("🔄 Refresh Logs", key="refresh_logs_ingest"):
+            st.session_state["_latest_logs_ingest"] = _get_backend_logs()
+
+        st.text_area(
+            label="Sentio API Logs",
+            value="\n".join(st.session_state.get("_latest_logs_ingest", [])),
+            height=300,
+            key="logs_ingest_area",
+        )
+
 # ------------------ Tab 2: Ask Questions ------------------
 with tabs[1]:
     st.header("Ask questions")
@@ -224,4 +235,16 @@ with tabs[1]:
                     source_label = src.get("source", "unknown")
                     st.markdown(f"* **{source_label}** (score: {score:.2f})")
             except Exception as e:
-                st.error(str(e)) 
+                st.error(str(e))
+
+    # ---------------- Logs Panel -------------------------------------------
+    with st.expander("📜 Backend Logs", expanded=False):
+        if st.button("🔄 Refresh Logs", key="refresh_logs_chat"):
+            st.session_state["_latest_logs_chat"] = _get_backend_logs()
+
+        st.text_area(
+            label="Sentio API Logs",
+            value="\n".join(st.session_state.get("_latest_logs_chat", [])),
+            height=300,
+            key="logs_chat_area",
+        ) 

@@ -839,6 +839,32 @@ async def health_check() -> HealthResponse:
     )
 
 
+# ---------------- Logs Endpoint -------------------------------------------
+@app.get("/logs", tags=["System"])
+async def logs_handler(tail: int = 200) -> Dict[str, List[str]]:
+    """Return the last *tail* log lines from ``logs/Sentio.log``.
+
+    A small helper for the Streamlit UI so that users can inspect ingestion and
+    chat processing activity in real time without shell access.
+    """
+    log_file = os.path.join("logs", "Sentio.log")
+
+    # When the file does not exist (e.g. first launch or container without
+    # volume), we return an empty list instead of raising to keep the UI clean.
+    if not os.path.exists(log_file):
+        return {"lines": []}
+
+    try:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to read log file: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to read logs") from exc
+
+    # Slice safely even if *tail* exceeds total line count.
+    return {"lines": lines[-abs(tail):]}
+
+
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat_handler(request: ChatRequest) -> ChatResponse:
     """
@@ -1212,6 +1238,52 @@ async def search_documents(request: SearchRequest) -> SearchResponse:
     except Exception as e:
         logger.error(f"Error during search: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/clear", tags=["Ingestion"])
+async def clear_collection_handler() -> Dict[str, str]:
+    """Delete the entire Qdrant collection configured in *config.COLLECTION_NAME*.
+
+    This endpoint is triggered from the Streamlit front-end to reset the
+    knowledge base completely.  It drops the collection if it exists and
+    returns a JSON object describing the outcome so that the UI can provide
+    feedback to the user.
+
+    Returns:
+        Dict[str, str]: A status message.
+    """
+    collection_name: str = config.COLLECTION_NAME
+
+    try:
+        if not qdrant_client:
+            raise HTTPException(status_code=500, detail="Qdrant client not initialised")
+
+        # Only attempt deletion if the collection is present to avoid 400 errors
+        try:
+            # Trigger deletion even if the SDK cache is stale – Qdrant will return 404
+            qdrant_client.delete_collection(collection_name=collection_name)
+        except UnexpectedResponse as exc:
+            # Gracefully ignore "not found" errors – collection is already gone
+            if "was not found" not in str(exc):  # type: ignore[redundant-expr]
+                raise  # Re-throw any unexpected server-side error
+
+        # --- Confirm deletion -----------------------------------------------------------------
+        # The HTTP call above can be asynchronous on some Qdrant deployments. We poll the
+        # collection list a couple of times to make sure the resource has actually disappeared
+        # before returning success to the caller. This avoids a race condition where the UI
+        # immediately issues a follow-up request that recreates the collection while the old
+        # one is still being removed server-side.
+        for _ in range(10):  # ~2 s total wait
+            if not qdrant_client.collection_exists(collection_name=collection_name):
+                break
+            await asyncio.sleep(0.2)
+
+        logger.info("Collection '%s' cleared successfully", collection_name)
+        return {"status": "success", "message": f"Collection '{collection_name}' deleted"}
+
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to clear collection '%s': %s", collection_name, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to clear collection: {exc}")
 
 
 @app.get("/info", tags=["System"])
