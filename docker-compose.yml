@@ -1,0 +1,98 @@
+# Sentio RAG System - Docker Compose Configuration
+# =============================================
+
+# Configuration for Docker Compose Bake
+x-bake:
+  targets: ["api", "worker", "ui"]
+  platforms: ["linux/amd64", "linux/arm64"]
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.api
+      args:
+        PYTHON_GPG: off
+        BUILDKIT_INLINE_CACHE: "1"
+        APT_OPTIONS: "Acquire::Retries=3"
+    env_file:
+      - .env
+    environment:
+      - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDING_MODEL_API_KEY=${EMBEDDING_MODEL_API_KEY}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_API_KEY_HEADER=api-key
+      - USE_AZURE=${USE_AZURE}
+      - CHAT_LLM_API_KEY=${CHAT_LLM_API_KEY}
+      - CHAT_LLM_BASE_URL=${CHAT_LLM_BASE_URL}
+      - CHAT_LLM_MODEL=${CHAT_LLM_MODEL}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
+      - BEAM_EMBEDDING_BASE_URL=${BEAM_EMBEDDING_BASE_URL}
+      - BEAM_MODE=${BEAM_MODE:-local}
+      # BEAM_* variables passed via env_file (.env)
+    ports: ["8000:8000"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.worker
+      args:
+        PYTHON_GPG: off
+        BUILDKIT_INLINE_CACHE: "1"
+        APT_OPTIONS: "Acquire::Retries=3"
+    environment:
+      - EMBEDDING_MODEL_API_KEY=${EMBEDDING_MODEL_API_KEY}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_API_KEY_HEADER=api-key
+      - USE_AZURE=${USE_AZURE}
+      - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
+      - BEAM_EMBEDDING_BASE_URL=${BEAM_EMBEDDING_BASE_URL}
+      - BEAM_MODE=${BEAM_MODE:-local}
+      # BEAM_* variables passed via env_file (.env)
+    env_file:
+      - .env
+
+  ui:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.ui
+      args:
+        PYTHON_GPG: off
+        BUILDKIT_INLINE_CACHE: "1"
+        APT_OPTIONS: "Acquire::Retries=3"
+    environment:
+      - SENTIO_BACKEND_URL=http://api:8000
+    ports: ["8501:8501"]
+    depends_on: ["api"]
+
+  ingest:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.api
+      args:
+        PYTHON_GPG: off
+        BUILDKIT_INLINE_CACHE: "1"
+        APT_OPTIONS: "Acquire::Retries=3"
+    env_file:
+      - .env
+    environment:
+      - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDING_MODEL_API_KEY=${EMBEDDING_MODEL_API_KEY}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_API_KEY_HEADER=api-key
+      - USE_AZURE=${USE_AZURE}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
+      - BEAM_EMBEDDING_BASE_CLOUD_URL=${BEAM_EMBEDDING_BASE_CLOUD_URL}
+      - BEAM_MODE=${BEAM_MODE:-cloud}
+      - EMBEDDING_TIMEOUT=${EMBEDDING_TIMEOUT:-180}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-2}
+      # BEAM_* variables passed via env_file (.env)
+      - DOCKER_ENV=true
+    volumes:
+      - ./root/data:/app/data
+      - ./root/src:/app/src
+    entrypoint: ["python", "-m", "root.src.utils.docker_wrapper", "--data_dir", "/app/data/raw", "--qdrant_url", "${QDRANT_URL}", "--collection", "${COLLECTION_NAME:-Sentio_docs}"]

@@ -1,0 +1,51 @@
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install only build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Final stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install only runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
+
+# Copy only necessary files
+COPY root/ ./root/
+COPY plugins/ ./plugins/
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Verify critical files exist
+RUN ls -la && \
+    echo "Checking API entrypoint..." && \
+    ls -la root/ && \
+    test -f root/app.py || (echo "ERROR: root/app.py not found in container" && exit 1)
+
+# Expose API port
+EXPOSE 8000
+
+# API command - use absolute path to ensure correct file is found
+CMD ["python", "root/app.py"]

@@ -1,0 +1,198 @@
+name: Docker Build and Push
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:  # Allows manual triggering
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  GITHUB_USERNAME: ${{ github.repository_owner }}
+  API_IMAGE_NAME: sentio-api
+  UI_IMAGE_NAME: sentio-ui
+  WORKER_IMAGE_NAME: sentio-worker
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: sentio-api
+            dockerfile: ./root/devops/Dockerfile.api
+          - image_name: sentio-ui
+            dockerfile: ./root/devops/Dockerfile.ui
+          - image_name: sentio-worker
+            dockerfile: ./root/devops/Dockerfile.worker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Docker optimization to solve timeout issues
+      - name: Configure Docker
+        run: |
+          echo "Configuring Docker for improved reliability"
+          # Create or update daemon.json with optimized settings
+          sudo mkdir -p /etc/docker
+          sudo bash -c 'cat > /etc/docker/daemon.json << EOF
+          {
+            "registry-mirrors": ["https://mirror.gcr.io"],
+            "max-concurrent-downloads": 1,
+            "max-concurrent-uploads": 1,
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            }
+          }
+          EOF'
+          sudo systemctl restart docker || true
+          # Wait for Docker restart
+          sleep 5
+          docker info
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64
+          driver-opts: |
+            network=host
+
+      - name: Docker login with retries
+        shell: bash
+        run: |
+          MAX_RETRIES=3
+          RETRY_DELAY=30
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES to log in to ghcr.io"
+            if echo "${{ secrets.CR_PAT || secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin; then
+              echo "Successfully logged in to ghcr.io"
+              break
+            else
+              echo "Failed to log in to ghcr.io, retrying in ${RETRY_DELAY}s..."
+              if [ $i -eq $MAX_RETRIES ]; then
+                echo "Maximum retries reached. Login failed."
+                exit 1
+              fi
+              sleep $RETRY_DELAY
+            fi
+          done
+
+      # Generate metadata and tags
+      - name: Extract metadata for Docker
+        id: meta
+        shell: bash
+        run: |
+          # Get version from pyproject.toml or other source
+          VERSION=$(grep -oP 'version\s*=\s*"\K[^"]+' pyproject.toml 2>/dev/null || echo "0.1.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Get short SHA
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c 1-7)
+          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          # Get branch name without special characters
+          BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | sed 's/[^a-zA-Z0-9]/-/g')
+          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          # Set date tag
+          DATE_TAG=$(date +'%Y%m%d')
+          echo "date=$DATE_TAG" >> $GITHUB_OUTPUT
+
+      # Build and push image with retries
+      - name: Build and push image
+        id: docker_build
+        run: |
+          MAX_RETRIES=3
+          RETRY_DELAY=30
+          
+          # Variables for tags
+          VERSION="${{ steps.meta.outputs.version }}"
+          SHA="${{ steps.meta.outputs.sha }}"
+          DATE="${{ steps.meta.outputs.date }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.GITHUB_USERNAME }}/${{ matrix.image_name }}"
+          
+          # Build image locally first
+          echo "Building Docker image locally..."
+          docker build \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --build-arg APT_OPTIONS="Acquire::http::Pipeline-Depth=0" \
+            -t $IMAGE:latest \
+            -t $IMAGE:$VERSION \
+            -t $IMAGE:$SHA \
+            -t $IMAGE:$VERSION-$DATE \
+            -f ${{ matrix.dockerfile }} .
+          
+          # If this is not a PR, try to push the image
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "Attempt $i/$MAX_RETRIES to push to ghcr.io"
+              if docker push $IMAGE:latest && \
+                 docker push $IMAGE:$VERSION && \
+                 docker push $IMAGE:$SHA && \
+                 docker push $IMAGE:$VERSION-$DATE; then
+                echo "Successfully pushed all images to ghcr.io"
+                break
+              else
+                echo "Failed to push to ghcr.io, retrying in ${RETRY_DELAY}s..."
+                if [ $i -eq $MAX_RETRIES ]; then
+                  echo "Maximum retries reached. Push failed."
+                  exit 1
+                fi
+                sleep $RETRY_DELAY
+              fi
+            done
+          else
+            echo "Skipping push for PR"
+          fi
+
+  # Update deployment files after successful build
+  update-deployment:
+    needs: build-and-push
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up metadata
+        id: meta
+        shell: bash
+        run: |
+          # Get version from pyproject.toml or other source
+          VERSION=$(grep -oP 'version\s*=\s*"\K[^"]+' pyproject.toml 2>/dev/null || echo "0.1.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Get short SHA
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c 1-7)
+          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          DATE_TAG=$(date +'%Y%m%d')
+          echo "date=$DATE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Create deployment summary
+        run: |
+          echo "## Docker Images Built and Published :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Tags |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| ${{ env.REGISTRY }}/${{ env.GITHUB_USERNAME }}/sentio-api | latest, ${{ steps.meta.outputs.version }}, ${{ steps.meta.outputs.sha }}, ${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.date }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ${{ env.REGISTRY }}/${{ env.GITHUB_USERNAME }}/sentio-ui | latest, ${{ steps.meta.outputs.version }}, ${{ steps.meta.outputs.sha }}, ${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.date }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ${{ env.REGISTRY }}/${{ env.GITHUB_USERNAME }}/sentio-worker | latest, ${{ steps.meta.outputs.version }}, ${{ steps.meta.outputs.sha }}, ${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.date }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deploy using: `./infra/azure/scripts/deploy-apps.sh`" >> $GITHUB_STEP_SUMMARY 
