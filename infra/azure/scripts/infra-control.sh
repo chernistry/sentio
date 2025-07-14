@@ -148,8 +148,8 @@ start_container_apps() {
     
     # Set min replicas to 1 for API and UI to ensure they're running
     if [[ "$app" == *"api"* ]] || [[ "$app" == *"ui"* ]]; then
-      echo "Setting min replicas to 1 for $app..."
-      az containerapp update --name $app --resource-group $RESOURCE_GROUP --min-replicas 1
+      echo "Setting min/max replicas to 1 for $app..."
+      az containerapp update --name $app --resource-group $RESOURCE_GROUP --min-replicas 1 --max-replicas 1
     fi
   done
   

@@ -178,7 +178,7 @@ az containerapp create \
   --target-port 8000 \
   --ingress "external" \
   --min-replicas 1 \
-  --max-replicas 2 \
+  --max-replicas 1 \
   --cpu 0.5 \
   --memory 1.0Gi \
   --secrets "jina-api-key=$JINA_API_KEY" "qdrant-api-key=$QDRANT_API_KEY" "openrouter-api-key=$OPENROUTER_API_KEY" "queue-connection-string=$QUEUE_CONNECTION_STRING" "embedding-model-api-key=$EMBEDDING_MODEL_API_KEY" "chat-llm-api-key=$CHAT_LLM_API_KEY" \
@@ -197,7 +197,7 @@ az containerapp create \
   --target-port 8000 \
   --ingress "internal" \
   --min-replicas 0 \
-  --max-replicas 2 \
+  --max-replicas 1 \
   --cpu 0.5 \
   --memory 1.0Gi \
   --secrets "jina-api-key=$JINA_API_KEY" "qdrant-api-key=$QDRANT_API_KEY" "openrouter-api-key=$OPENROUTER_API_KEY" "queue-connection-string=$QUEUE_CONNECTION_STRING" "embedding-model-api-key=$EMBEDDING_MODEL_API_KEY" "chat-llm-api-key=$CHAT_LLM_API_KEY" \
@@ -224,7 +224,7 @@ az containerapp create \
   --target-port 8501 \
   --ingress "external" \
   --min-replicas 0 \
-  --max-replicas 2 \
+  --max-replicas 1 \
   --cpu 0.5 \
   --memory 1.0Gi \
   --secrets "jina-api-key=$JINA_API_KEY" "qdrant-api-key=$QDRANT_API_KEY" "openrouter-api-key=$OPENROUTER_API_KEY" "queue-connection-string=$QUEUE_CONNECTION_STRING" \

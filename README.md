@@ -89,42 +89,41 @@ graph TD
     end
 
     subgraph Azure
-        subgraph ACI ["Azure Container Instances"]
+        subgraph ACA ["Azure Container Apps"]
             API[Sentio API]
             Worker[Sentio Worker]
-            Qdrant[Qdrant]
+            UI[Sentio UI]
         end
 
         subgraph Services ["Azure Services"]
             KV[(Key Vault)]
             Queue[(Storage Queue)]
-            FS[(File Share)]
             LOG[(Log Analytics)]
-            CDB[(CosmosDB)]
         end
 
-        subgraph BeamCloud ["Beam Cloud (Optional)"]
-            EMBED[Embedding Endpoint]
-            CHAT[Chat Endpoint]
+        subgraph CloudServices ["Cloud Services"]
+            QdrantCloud[(Qdrant Cloud)]
+            JinaAI[Jina AI Embeddings]
+            OpenRouter[OpenRouter LLM]
         end
 
-        U --> API
+        U --> UI
         W --> API
 
         API --> Queue
-        API --> Qdrant
+        API --> QdrantCloud
         API --> KV
         API --> LOG
-        API --> EMBED
-        API --> CHAT
+        API --> JinaAI
+        API --> OpenRouter
 
         Worker --> Queue
-        Worker --> Qdrant
+        Worker --> QdrantCloud
         Worker --> KV
         Worker --> LOG
-        Worker --> EMBED
+        Worker --> JinaAI
 
-        Qdrant --> FS
+        UI --> API
     end
 ```
 

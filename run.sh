@@ -230,8 +230,8 @@ update_azure_apps() {
 
   # After restart ensure apps are set to min replicas >=1 for API/UI
   echo -e "${GREEN}• Ensuring API and UI have at least 1 replica...${NC}"
-  az containerapp update --resource-group "$RESOURCE_GROUP" --name "ca-sentio-api" --min-replicas 1 >/dev/null || true
-  az containerapp update --resource-group "$RESOURCE_GROUP" --name "ca-sentio-ui" --min-replicas 1 >/dev/null || true
+  az containerapp update --resource-group "$RESOURCE_GROUP" --name "ca-sentio-api" --min-replicas 1 --max-replicas 1 >/dev/null || true
+  az containerapp update --resource-group "$RESOURCE_GROUP" --name "ca-sentio-ui" --min-replicas 1 --max-replicas 1 >/dev/null || true
 
   echo -e "${GREEN}• Starting all container apps...${NC}"
   run_azure_infra_control "start"
