@@ -1,0 +1,113 @@
+# Common ignores
+.git/
+.github/
+.gitignore
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+*.orig
+*.rej
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.venv/
+venv/
+env/
+*.egg-info/
+*.egg
+.mypy_cache/
+.ruff_cache/
+*.prof
+.pytype/
+
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.yarn/
+.pnp.*
+package-lock.json
+yarn.lock
+.npm/
+
+# Build artifacts
+dist/
+build/
+.next/
+coverage/
+out/
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Project specific
+tests/
+docs/
+*.md
+!README.md
+LICENSE
+.env.example
+.env.azure.example
+.env.*.example
+*.log
+logs/
+tmp/
+
+# Docker related
+docker-compose*.yml
+.dockerignore
+
+# Azure/infra related
+infra/azure/bicep/
+infra/azure/arm/
+terraform/
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terragrunt-cache/
+
+# Large directories - exclude big models and data
+models/
+logs/
+assets/
+.archive/
+.qdran_data/
+
+# Cache directories
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+**/__pycache__/
+.cache/
+
+# Local development configs
+.env
+.env.*
+!.env.example
+
+# Keep important files
+!requirements.txt
+!root/devops/wait-for-it.sh
+!root/devops/startup.sh
+!root/keys.csv
+

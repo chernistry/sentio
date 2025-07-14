@@ -1,0 +1,99 @@
+# syntax=docker/dockerfile:1.4
+
+# Stage for building dependencies
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Accept build arguments for apt configuration
+ARG APT_OPTIONS=""
+
+# Install build dependencies with optimized caching
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    mkdir -p /var/lib/apt/lists/partial && \
+    apt-get update -o Acquire::BrokenProxy=true ${APT_OPTIONS:+ -o ${APT_OPTIONS}} && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev && \
+    apt-get clean && \
+    apt-get purge -y gcc python3-dev && \
+    apt-get autoremove -y
+
+# Copy requirements and install dependencies with cache
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip pip install pip-tools wheel && pip-compile requirements.txt --output-file requirements.compiled.txt && pip install -r requirements.compiled.txt
+
+# Final stage
+FROM python:3.11-slim
+
+# Build arguments for image metadata
+ARG VERSION="0.1.0"
+ARG BUILD_DATE="2023-01-01T00:00:00Z"
+ARG VCS_REF="local"
+ARG PYTHON_GPG=off
+ARG APT_OPTIONS=""
+
+# Add image metadata
+LABEL org.opencontainers.image.title="Sentio Worker" \
+      org.opencontainers.image.description="Sentio RAG Worker service" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.vendor="Sentio Team"
+
+WORKDIR /app
+
+# Install only runtime dependencies with caching
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    mkdir -p /var/lib/apt/lists/partial && \
+    apt-get update -o Acquire::BrokenProxy=true ${APT_OPTIONS:+ -o ${APT_OPTIONS}} && \
+    apt-get install -y --no-install-recommends \
+    curl && \
+    apt-get clean
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+COPY --from=builder /app/requirements.compiled.txt .
+RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.compiled.txt && \
+    pip install --no-deps click python-dotenv
+
+# Create necessary directories first
+RUN mkdir -p /app/logs /app/data/raw
+
+# Copy only necessary files with more granular layers
+COPY root/worker.py ./worker.py
+COPY root/worker/ ./worker/
+COPY root/src/ ./src/
+COPY root/__init__.py ./__init__.py
+COPY root/cli/ ./cli/
+COPY root/devops/wait-for-it.sh ./wait-for-it.sh
+RUN chmod +x ./wait-for-it.sh
+# Create empty keys.csv instead of copying, since original file is not needed
+RUN touch ./keys.csv
+COPY plugins/ ./plugins/
+
+# Copy and set up startup script
+COPY root/devops/startup.sh /app/startup.sh
+RUN chmod +x /app/startup.sh
+
+# Set up environment variables
+ENV PYTHONPATH=/app \
+    DOCKER_ENV=true \
+    USE_AZURE=true \
+    PYTHONUNBUFFERED=1 \
+    QDRANT_URL="" \
+    QDRANT_API_KEY="" \
+    QDRANT_API_KEY_HEADER="api-key" \
+    EMBEDDING_MODEL_API_KEY="" \
+    OLLAMA_URL=http://ollama:11434 \
+    OLLAMA_MODEL=phi3.5:3.8b \
+    LOG_LEVEL=info
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD ps aux | grep worker.py | grep -v grep || exit 1
+
+# Command to run the worker using the startup script
+CMD ["/app/startup.sh"] 
