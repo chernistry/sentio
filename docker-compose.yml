@@ -30,6 +30,8 @@ services:
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
       - BEAM_EMBEDDING_BASE_URL=${BEAM_EMBEDDING_BASE_URL}
       - BEAM_MODE=${BEAM_MODE:-local}
+      - SENTIO_PLUGINS=ragas_eval
+      - LOG_LEVEL=debug
       # BEAM_* variables passed via env_file (.env)
     ports: ["8000:8000"]
 

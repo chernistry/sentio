@@ -41,39 +41,57 @@ async def startup_event():
     try:
         logger.info("Server starting up...")
         
+        # Check environment variables
+        logger.info(f"SENTIO_PLUGINS env: {os.getenv('SENTIO_PLUGINS', 'not set')}")
+        
         # Initialize the main RAG pipeline first
         if not pipeline.initialized:
             await pipeline.initialize()
         
         # Discover and load plugins from the environment
+        logger.info("Loading plugins from environment...")
         plugin_manager.load_from_env()
         
+        # Log loaded plugins
+        logger.info(f"Loaded plugins: {[p.name for p in plugin_manager._plugins]}")
+        
         # Register all loaded plugins with the pipeline instance
+        logger.info("Registering all loaded plugins...")
         plugin_manager.register_all(pipeline)
         
         # Explicitly load and register RAGAS plugin from plugins directory
         try:
+            logger.info("Explicitly loading RAGAS plugin...")
             # Import the plugin module
             ragas_module = importlib.import_module("plugins.ragas_eval")
-            ragas_plugin = ragas_module.get_plugin()
+            logger.info(f"RAGAS module imported: {ragas_module}")
             
-            logger.info(f"Explicitly loading RAGAS plugin: {ragas_plugin.name}")
-            plugin_manager.register_plugin(ragas_plugin, pipeline)
-            
-            # Проверка успешности регистрации
-            if hasattr(pipeline, "evaluator"):
-                logger.info("✅ RAGAS plugin registered successfully, evaluator is available")
-                logger.info(f"Evaluator methods: get_evaluation_history={hasattr(pipeline.evaluator, 'get_evaluation_history')}, get_average_metrics={hasattr(pipeline.evaluator, 'get_average_metrics')}")
-                logger.info(f"Pipeline methods: get_evaluation_history={hasattr(pipeline, 'get_evaluation_history')}, get_average_metrics={hasattr(pipeline, 'get_average_metrics')}")
+            # Check for get_plugin function
+            if hasattr(ragas_module, "get_plugin"):
+                logger.info("get_plugin function found in RAGAS module")
+                ragas_plugin = ragas_module.get_plugin()
                 
-                # Доступ к методам через pipeline.evaluator
-                if hasattr(pipeline.evaluator, "get_evaluation_history"):
-                    history = pipeline.evaluator.get_evaluation_history()
-                    logger.info(f"Evaluation history entries: {len(history)}")
+                logger.info(f"Explicitly loading RAGAS plugin: {ragas_plugin.name}")
+                plugin_manager.register_plugin(ragas_plugin, pipeline)
+                
+                # Check registration success
+                if hasattr(pipeline, "evaluator"):
+                    logger.info("✅ RAGAS plugin registered successfully, evaluator is available")
+                    logger.info(f"Evaluator methods: get_evaluation_history={hasattr(pipeline.evaluator, 'get_evaluation_history')}, get_average_metrics={hasattr(pipeline.evaluator, 'get_average_metrics')}")
+                    logger.info(f"Pipeline methods: get_evaluation_history={hasattr(pipeline, 'get_evaluation_history')}, get_average_metrics={hasattr(pipeline, 'get_average_metrics')}")
+                    
+                    # Access methods via pipeline.evaluator
+                    if hasattr(pipeline.evaluator, "get_evaluation_history"):
+                        history = pipeline.evaluator.get_evaluation_history()
+                        logger.info(f"Evaluation history entries: {len(history)}")
+                else:
+                    logger.warning("⚠️ RAGAS plugin registered but evaluator attribute not found on pipeline")
             else:
-                logger.warning("⚠️ RAGAS plugin registered but evaluator attribute not found on pipeline")
+                logger.error("❌ get_plugin function not found in RAGAS module")
+        except ImportError as e:
+            logger.error(f"❌ Failed to import RAGAS plugin module: {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"Failed to load RAGAS plugin: {e}", exc_info=True)
+            logger.error(f"❌ Failed to load RAGAS plugin: {e}", exc_info=True)
 
     except Exception as e:
         logger.critical(f"FATAL: Server startup failed - {e}", exc_info=True)

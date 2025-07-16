@@ -93,10 +93,10 @@ class PluginManager:
                 logger.info(f"Registering plugin {plugin.name} with pipeline")
                 logger.info(f"Plugin has register method: {hasattr(plugin, 'register')}")
                 
-                # Вызываем метод register плагина
+                # Call the plugin's register method
                 plugin.register(pipeline)
                 
-                # Проверяем, что плагин успешно добавил evaluator к pipeline
+                # Check if the plugin successfully added evaluator to the pipeline
                 if hasattr(pipeline, "evaluator"):
                     logger.info(f"✅ Plugin {plugin.name} successfully registered evaluator")
                     if hasattr(pipeline.evaluator, "get_evaluation_history"):

@@ -48,6 +48,8 @@ from qdrant_client.http.models import VectorParams, Distance
 from root.src.core.llm.chat_adapter import chat_completion
 from root.src.core.embeddings.embeddings_adapter import get_embedding_model
 from root.src.core.tasks.embeddings import BaseEmbeddingModel, EmbeddingError
+from root.src.core.plugin_manager import PluginManager
+import importlib
 
 # Import Azure integration modules with graceful degradation
 try:
@@ -231,6 +233,9 @@ jina_headers: Dict[str, str] = {}
 # Lazily-initialised embedding model instance (global for reuse)
 embedding_model: Optional[BaseEmbeddingModel] = None
 
+# Global variables for plugins
+ragas_evaluator = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -327,6 +332,56 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         logger.info(f"✓ Using {config.EMBEDDING_PROVIDER.upper()} as embedding provider")
         logger.info(f"✓ Using {config.CHAT_PROVIDER.upper()} as chat provider")
+        
+        # Initialization and loading of plugins
+        try:
+            logger.info("🔌 Initializing plugin system...")
+            plugin_manager = PluginManager()
+            
+            # Loading plugins from environment variables
+            logger.info("Loading plugins from environment...")
+            plugin_manager.load_from_env()
+            
+            # Logging loaded plugins
+            logger.info(f"Loaded plugins: {[p.name for p in plugin_manager._plugins]}")
+            
+            # Explicitly loading RAGAS plugin
+            try:
+                logger.info("🔍 Explicitly loading RAGAS plugin...")
+                # Import the plugin module
+                ragas_module = importlib.import_module("plugins.ragas_eval")
+                logger.info(f"RAGAS module imported: {ragas_module}")
+                
+                if hasattr(ragas_module, "get_plugin"):
+                    logger.info("get_plugin function found in RAGAS module")
+                    ragas_plugin = ragas_module.get_plugin()
+                    
+                    # Create a simple pipeline object for plugin registration
+                    # This is a temporary solution until we fully integrate a pipeline
+                    class SimplePipeline:
+                        def __init__(self):
+                            self.initialized = True
+                    
+                    simple_pipeline = SimplePipeline()
+                    
+                    logger.info(f"Registering RAGAS plugin: {ragas_plugin.name}")
+                    plugin_manager.register_plugin(ragas_plugin, simple_pipeline)
+                    
+                    # Add evaluator to global space for API usage
+                    global ragas_evaluator
+                    if hasattr(simple_pipeline, "evaluator"):
+                        ragas_evaluator = simple_pipeline.evaluator
+                        logger.info("✅ RAGAS evaluator registered globally")
+                else:
+                    logger.error("❌ get_plugin function not found in RAGAS module")
+            except ImportError as e:
+                logger.error(f"❌ Failed to import RAGAS plugin module: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(f"❌ Failed to load RAGAS plugin: {e}", exc_info=True)
+                
+        except Exception as e:
+            logger.error(f"❌ Error initializing plugin system: {e}", exc_info=True)
+        
         logger.info("🎉 Sentio RAG System started successfully!")
 
         yield
@@ -827,6 +882,12 @@ async def health_check() -> HealthResponse:
             services["jina_reranker"] = "healthy"
         else:
             services["jina_reranker"] = "status depends on jina API"
+            
+    # Check RAGAS evaluator status
+    if ragas_evaluator:
+        services["ragas_evaluator"] = "healthy"
+    else:
+        services["ragas_evaluator"] = "unavailable"
 
     return HealthResponse(
         status="healthy" if all(
@@ -837,6 +898,37 @@ async def health_check() -> HealthResponse:
         version="2.0.0",
         services=services
     )
+
+# Add endpoints for evaluation
+@app.get("/evaluation/history", tags=["Evaluation"])
+async def evaluation_history_endpoint():
+    """Get the evaluation history."""
+    try:
+        if ragas_evaluator:
+            history = ragas_evaluator.get_evaluation_history()
+            logger.info(f"Returning evaluation history with {len(history)} entries")
+            return history
+        else:
+            logger.warning("RAGAS evaluator not available")
+            raise HTTPException(status_code=404, detail="RAGAS evaluation not enabled")
+    except Exception as e:
+        logger.error(f"Error in evaluation history endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/evaluation/metrics", tags=["Evaluation"])
+async def evaluation_metrics_endpoint():
+    """Get the average evaluation metrics."""
+    try:
+        if ragas_evaluator:
+            metrics = ragas_evaluator.get_average_metrics()
+            logger.info(f"Returning evaluation metrics: {metrics}")
+            return metrics
+        else:
+            logger.warning("RAGAS evaluator not available")
+            raise HTTPException(status_code=404, detail="RAGAS evaluation not enabled")
+    except Exception as e:
+        logger.error(f"Error in evaluation metrics endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
@@ -1054,6 +1146,29 @@ async def chat_handler(request: ChatRequest) -> ChatResponse:
             sources=sources,
             metadata={"request_id": request_id}
         )
+        
+        # Оценка ответа с помощью RAGAS evaluator, если он доступен
+        if ragas_evaluator:
+            try:
+                logger.info("Evaluating answer with RAGAS")
+                contexts = [doc["text"] for doc in top_docs]
+                metrics = await ragas_evaluator._openrouter_evaluation(
+                    query, 
+                    answer, 
+                    contexts, 
+                    ["faithfulness", "answer_relevancy", "context_relevancy"]
+                )
+                
+                # Добавляем результаты оценки в ответ
+                if not response.metadata:
+                    response.metadata = {}
+                response.metadata["evaluation"] = {
+                    "metrics": metrics,
+                    "timestamp": time.time()
+                }
+                logger.info(f"RAGAS evaluation metrics: {metrics}")
+            except Exception as e:
+                logger.error(f"Error during RAGAS evaluation: {e}")
 
         if config.USE_AZURE and azure_queue_client:
             try:

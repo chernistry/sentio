@@ -1,12 +1,14 @@
-"""RAGAS-based evaluation for Retrieval-Augmented Generation.
+"""RAGAS evaluation module for Sentio RAG.
 
-This module provides quality assessment for RAG systems using the RAGAS
-framework (Retrieval Augmented Generation Assessment). It offers metrics to
-evaluate faithfulness, answer relevancy, and context relevancy without requiring
-ground-truth answers. A fallback LLM judge is used when RAGAS is unavailable.
+This module provides evaluation capabilities for RAG systems using RAGAS metrics.
 """
+
+import logging
 
 from .evaluator import RAGEvaluator
 from .plugin import RAGASPlugin, get_plugin
 
-__all__ = ["RAGEvaluator", "RAGASPlugin", "get_plugin"] 
+__all__ = ["RAGEvaluator", "RAGASPlugin", "get_plugin"]
+
+logger = logging.getLogger(__name__)
+logger.info("✅ RAGAS module initialized") 
