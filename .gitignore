@@ -87,3 +87,5 @@ prompt.md
 .coveragerc
 .coverage
 .tree.md
+
+plugins/ragas_examples/*
