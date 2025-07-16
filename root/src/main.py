@@ -47,7 +47,8 @@ async def startup_event():
         
         # Load RAGAS evaluator plugin
         try:
-            from plugins.ragas_eval import get_plugin
+            # Import from the new core module location
+            from root.src.core.llm.ragas import get_plugin
             ragas_plugin = get_plugin()
             plugin_manager.register_plugin(ragas_plugin)
             logger.info("✅ RAGAS evaluation plugin loaded successfully")

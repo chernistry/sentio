@@ -25,6 +25,11 @@ beam
 langchain_community
 rank_bm25  # For hybrid search functionality
 click
+
+# RAGAS evaluation
+ragas
+datasets
+
 # Testing dependencies
 pytest
 pytest-asyncio

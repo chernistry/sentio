@@ -4,11 +4,9 @@ This module provides quality assessment for RAG systems using the RAGAS
 framework (Retrieval Augmented Generation Assessment). It offers metrics to
 evaluate faithfulness, answer relevancy, and context relevancy without requiring
 ground-truth answers. A fallback LLM judge is used when RAGAS is unavailable.
-
-This is a compatibility wrapper that imports from the core RAGAS module.
 """
 
-from root.src.core.llm.ragas import RAGASPlugin, get_plugin
+from .evaluator import RAGEvaluator
+from .plugin import RAGASPlugin, get_plugin
 
-# Re-export for backward compatibility
-__all__ = ["RAGASPlugin", "get_plugin"]
+__all__ = ["RAGEvaluator", "RAGASPlugin", "get_plugin"] 
