@@ -150,11 +150,37 @@ def ask_question(question: str, top_k: int = 3, temperature: float = 0.7) -> Dic
         raise RuntimeError(f"/chat failed ({response.status_code}): {response.text}")
     return response.json()
 
+def get_evaluation_history() -> List[Dict]:
+    """Fetch evaluation history from backend."""
+    url = f"{BACKEND_URL}/evaluation/history"
+    try:
+        response = requests.get(url, timeout=30)
+        if response.status_code != 200:
+            st.warning(f"Could not fetch evaluation history: {response.status_code}")
+            return []
+        return response.json()
+    except Exception as e:
+        st.warning(f"Error fetching evaluation history: {e}")
+        return []
+
+def get_average_metrics() -> Dict:
+    """Fetch average evaluation metrics from backend."""
+    url = f"{BACKEND_URL}/evaluation/metrics"
+    try:
+        response = requests.get(url, timeout=30)
+        if response.status_code != 200:
+            st.warning(f"Could not fetch average metrics: {response.status_code}")
+            return {}
+        return response.json()
+    except Exception as e:
+        st.warning(f"Error fetching average metrics: {e}")
+        return {}
+
 # -----------------------------------------------------------------------------
 # UI Layout
 # -----------------------------------------------------------------------------
 
-tabs = st.tabs(["📤 Upload Documents", "💬 Ask Questions"])
+tabs = st.tabs(["📤 Upload Documents", "💬 Ask Questions", "📊 RAGAS Evaluation"])
 
 # ------------------ Tab 1: Upload Documents ------------------
 with tabs[0]:
@@ -199,6 +225,29 @@ with tabs[1]:
             try:
                 response = ask_question(question, top_k, temperature)
                 st.markdown(f"### Answer\n{response['answer']}")
+                
+                # Display evaluation metrics if available
+                if "evaluation" in response:
+                    eval_data = response["evaluation"]
+                    metrics = eval_data.get("metrics", {})
+                    thresholds = eval_data.get("thresholds", {})
+                    passed = eval_data.get("passed_thresholds", False)
+                    
+                    st.markdown("---")
+                    st.markdown("#### Quality Evaluation")
+                    
+                    # Create a color-coded metrics display
+                    for name, score in metrics.items():
+                        threshold = thresholds.get(name, 0.0)
+                        color = "green" if score >= threshold else "red"
+                        st.markdown(f"* **{name}**: <span style='color:{color}'>{score:.3f}</span> (threshold: {threshold:.2f})", unsafe_allow_html=True)
+                    
+                    # Overall assessment
+                    if passed:
+                        st.success("✅ Answer meets all quality thresholds")
+                    else:
+                        st.warning("⚠️ Answer does not meet all quality thresholds")
+                
                 st.markdown("---")
                 st.markdown("#### Sources")
                 for src in response.get("sources", []):
@@ -206,4 +255,81 @@ with tabs[1]:
                     source_label = src.get("source", "unknown")
                     st.markdown(f"* **{source_label}** (score: {score:.2f})")
             except Exception as e:
-                st.error(str(e)) 
+                st.error(str(e))
+
+# ------------------ Tab 3: RAGAS Evaluation ------------------
+with tabs[2]:
+    st.header("RAGAS Evaluation Dashboard")
+    
+    # Fetch evaluation data
+    with st.spinner("Loading evaluation data..."):
+        history = get_evaluation_history()
+        avg_metrics = get_average_metrics()
+    
+    # Display average metrics
+    st.subheader("Average Quality Metrics")
+    if avg_metrics:
+        # Create metrics visualization
+        cols = st.columns(len(avg_metrics))
+        for i, (metric_name, score) in enumerate(avg_metrics.items()):
+            threshold = THRESHOLDS = {
+                "faithfulness": 0.5,
+                "answer_relevancy": 0.6,
+                "context_relevancy": 0.7,
+            }.get(metric_name, 0.0)
+            
+            with cols[i]:
+                st.metric(
+                    label=metric_name.replace("_", " ").title(),
+                    value=f"{score:.3f}",
+                    delta=f"{score - threshold:.3f}",
+                    delta_color="normal" if score >= threshold else "inverse"
+                )
+    else:
+        st.info("No evaluation data available yet. Ask some questions to generate metrics.")
+    
+    # Display evaluation history
+    st.subheader("Evaluation History")
+    if history:
+        # Create a dataframe for the history
+        history_data = []
+        for entry in history:
+            metrics = entry.get("metrics", {})
+            history_data.append({
+                "Query": entry.get("query", "")[:50] + ("..." if len(entry.get("query", "")) > 50 else ""),
+                "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(entry.get("timestamp", 0))),
+                **metrics
+            })
+        
+        # Display as a table
+        st.dataframe(history_data, use_container_width=True)
+        
+        # Detailed view of a selected entry
+        st.subheader("Detailed Evaluation")
+        # Let user select an entry to view in detail
+        selected_idx = st.selectbox(
+            "Select an evaluation to view details:",
+            options=list(range(len(history))),
+            format_func=lambda i: f"{history[i].get('query', '')[:30]}... ({time.strftime('%H:%M:%S', time.localtime(history[i].get('timestamp', 0)))})"
+        )
+        
+        if selected_idx is not None:
+            selected = history[selected_idx]
+            st.markdown("##### Query")
+            st.write(selected.get("query", ""))
+            
+            st.markdown("##### Answer")
+            st.write(selected.get("answer", ""))
+            
+            st.markdown("##### Metrics")
+            metrics = selected.get("metrics", {})
+            for name, score in metrics.items():
+                threshold = THRESHOLDS = {
+                    "faithfulness": 0.5,
+                    "answer_relevancy": 0.6,
+                    "context_relevancy": 0.7,
+                }.get(name, 0.0)
+                color = "green" if score >= threshold else "red"
+                st.markdown(f"* **{name}**: <span style='color:{color}'>{score:.3f}</span> (threshold: {threshold:.2f})", unsafe_allow_html=True)
+    else:
+        st.info("No evaluation history available yet. Ask some questions to generate evaluation data.") 

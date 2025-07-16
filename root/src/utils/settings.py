@@ -85,6 +85,15 @@ class SentioSettings(BaseSettings):
     chat_llm_base_url: str = Field("https://openrouter.ai/api/v1", env="CHAT_LLM_BASE_URL")
     chat_llm_model: str = Field("deepseek/deepseek-chat-v3-0324:free", env="CHAT_LLM_MODEL")
     chat_llm_api_key: str | None = Field(None, env="CHAT_LLM_API_KEY")
+    
+    # RAGAS evaluation configuration
+    ragas_provider: str = Field("openrouter", env="RAGAS_PROVIDER")
+    ragas_model: str = Field("deepseek/deepseek-r1-0528:free", env="RAGAS_MODEL")
+    ragas_prompt: str = Field("root/prompts/ragas.md", env="RAGAS_PROMPT")
+    ragas_faithfulness_threshold: float = Field(0.5, env="RAGAS_FAITHFULNESS_THRESHOLD")
+    ragas_answer_relevancy_threshold: float = Field(0.6, env="RAGAS_ANSWER_RELEVANCY_THRESHOLD")
+    ragas_context_relevancy_threshold: float = Field(0.7, env="RAGAS_CONTEXT_RELEVANCY_THRESHOLD")
+    enable_automatic_evaluation: bool = Field(True, env="ENABLE_AUTOMATIC_EVALUATION")
 
     # Beam Cloud configuration
     beam_api_token: str | None = Field(None, env="BEAM_API_TOKEN")

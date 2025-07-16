@@ -17,7 +17,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from root.src.core.llm.chat_adapter import chat_completion
+from root.src.utils.settings import settings
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -49,15 +53,9 @@ except ImportError:
 
 # ==== CONFIGURATION THRESHOLDS ==== #
 
-FAITHFULNESS_THRESHOLD: float = float(
-    os.getenv("RAGAS_FAITHFULNESS_THRESHOLD", "0.5")
-)
-ANSWER_RELEVANCY_THRESHOLD: float = float(
-    os.getenv("RAGAS_ANSWER_RELEVANCY_THRESHOLD", "0.6")
-)
-CONTEXT_RELEVANCY_THRESHOLD: float = float(
-    os.getenv("RAGAS_CONTEXT_RELEVANCY_THRESHOLD", "0.7")
-)
+FAITHFULNESS_THRESHOLD: float = settings.ragas_faithfulness_threshold
+ANSWER_RELEVANCY_THRESHOLD: float = settings.ragas_answer_relevancy_threshold
+CONTEXT_RELEVANCY_THRESHOLD: float = settings.ragas_context_relevancy_threshold
 
 # ---------------------------------------------------------------------------
 # Centralised threshold lookup & model defaults
@@ -104,14 +102,19 @@ class RAGEvaluator:
         Postconditions:
             Sets self.metrics based on available evaluation methods.
         """
-        self.use_llm_judge: bool = bool(use_llm_judge) and os.getenv(
-            "ENABLE_LLM_JUDGE", "0"
-        ) == "1"
+        self.use_llm_judge: bool = bool(use_llm_judge) or settings.enable_llm_judge
 
-        self.llm_provider: str = llm_provider or os.getenv(
-            "LLM_PROVIDER", "ollama"
-        )
+        self.llm_provider: str = llm_provider or settings.ragas_provider
         self.metrics: Dict[str, Any] = {}
+        # Store evaluation history
+        self.evaluation_history: List[Dict[str, Any]] = []
+        
+        # Load RAGAS prompt template
+        self.ragas_prompt_path = settings.ragas_prompt
+        self.ragas_prompt = self._load_ragas_prompt()
+        
+        # Get RAGAS model from settings
+        self.ragas_model = settings.ragas_model
 
         if HAS_RAGAS:
             self.metrics = {
@@ -127,6 +130,34 @@ class RAGEvaluator:
             logging.getLogger(__name__).warning(
                 "No evaluation method available (RAGAS + LLM judge disabled)"
             )
+    
+    def _load_ragas_prompt(self) -> str:
+        """Load RAGAS prompt template from file."""
+        try:
+            with open(self.ragas_prompt_path, "r") as f:
+                return f.read().strip()
+        except (FileNotFoundError, IOError):
+            logger.warning(f"RAGAS prompt file not found at {self.ragas_prompt_path}, using default prompt")
+            return """
+            You are an expert evaluator for RAG (Retrieval-Augmented Generation) systems.
+            
+            Evaluate the following answer based on the provided context and query.
+            
+            Return a JSON object with the following metrics, each scored from 0.0 to 1.0:
+            - faithfulness: How factually consistent the answer is with the provided context
+            - answer_relevancy: How relevant the answer is to the query
+            - context_relevancy: How relevant the provided context is to the query
+            
+            Each score should be between 0.0 (worst) and 1.0 (best).
+            
+            QUERY: {query}
+            
+            CONTEXT: {context}
+            
+            ANSWER: {answer}
+            
+            EVALUATION (return only valid JSON):
+            """
 
 
 
@@ -187,11 +218,28 @@ class RAGEvaluator:
                     return self._llm_judge_evaluation(
                         query, answer, contexts, selected_metrics
                     )
+                elif settings.ragas_provider == "openrouter":
+                    return self._openrouter_evaluation(
+                        query, answer, contexts, selected_metrics
+                    )
 
         elif self.use_llm_judge:
             return self._llm_judge_evaluation(
                 query, answer, contexts, selected_metrics
             )
+        elif settings.ragas_provider == "openrouter":
+            return self._openrouter_evaluation(
+                query, answer, contexts, selected_metrics
+            )
+
+        # Store evaluation results in history
+        evaluation_entry = {
+            "query": query,
+            "answer": answer,
+            "metrics": results,
+            "timestamp": import_time_and_get_current_time()
+        }
+        self.evaluation_history.append(evaluation_entry)
 
         return results
 
@@ -288,6 +336,98 @@ class RAGEvaluator:
         return answer, metrics
 
 
+    async def _openrouter_evaluation(
+        self,
+        query: str,
+        answer: str,
+        contexts: List[str],
+        metrics: List[str],
+    ) -> Dict[str, float]:
+        """
+        Evaluate using OpenRouter LLM via chat_adapter.
+
+        Args:
+            query (str): Query string.
+            answer (str): Generated answer text.
+            contexts (List[str]): Context passages.
+            metrics (List[str]): Metric names to compute.
+
+        Returns:
+            Dict[str, float]: Mapping of metrics to scores (0.0-1.0).
+        """
+        try:
+            context_text = "\n\n".join(contexts)
+            
+            # Format the prompt with query, answer, and context
+            prompt = self.ragas_prompt.format(
+                query=query,
+                answer=answer,
+                context=context_text
+            )
+            
+            # Prepare the payload for the chat_completion function
+            payload = {
+                "model": self.ragas_model,
+                "messages": [
+                    {"role": "system", "content": "You are an expert RAG system evaluator."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.0,
+                "stream": False,
+            }
+            
+            # Call the chat_completion function
+            response = await chat_completion(payload)
+            
+            if isinstance(response, dict) and "choices" in response:
+                response_text = response["choices"][0]["message"]["content"]
+                
+                # Try to parse JSON from the response
+                try:
+                    json_start = response_text.find("{")
+                    json_end = response_text.rfind("}") + 1
+                    if json_start >= 0 and json_end > json_start:
+                        json_str = response_text[json_start:json_end]
+                        metrics_data = json.loads(json_str)
+                        
+                        # Extract metrics from the parsed JSON
+                        results = {}
+                        for metric_name in metrics:
+                            if metric_name in metrics_data:
+                                results[metric_name] = float(metrics_data[metric_name])
+                        
+                        # Store evaluation results in history
+                        evaluation_entry = {
+                            "query": query,
+                            "answer": answer,
+                            "metrics": results,
+                            "timestamp": import_time_and_get_current_time(),
+                            "method": "openrouter"
+                        }
+                        self.evaluation_history.append(evaluation_entry)
+                        
+                        return results
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"Failed to parse JSON from OpenRouter response: {e}")
+            
+            # Fallback to default scores if parsing fails
+            logger.warning("OpenRouter evaluation failed, using default scores")
+            results = {metric: 0.5 for metric in metrics}
+            
+            # Store evaluation results in history
+            evaluation_entry = {
+                "query": query,
+                "answer": answer,
+                "metrics": results,
+                "timestamp": import_time_and_get_current_time(),
+                "method": "openrouter_fallback"
+            }
+            self.evaluation_history.append(evaluation_entry)
+            
+            return results
+        except Exception as e:
+            logger.error(f"OpenRouter evaluation error: {e}")
+            return {metric: 0.5 for metric in metrics}
 
 
     def _llm_judge_evaluation(
@@ -351,6 +491,16 @@ class RAGEvaluator:
                     "LLM judge error: %s", exc
                 )
                 results[name] = 0.5  # neutral
+
+        # Store evaluation results in history
+        evaluation_entry = {
+            "query": query,
+            "answer": answer,
+            "metrics": results,
+            "timestamp": import_time_and_get_current_time(),
+            "method": "llm_judge"
+        }
+        self.evaluation_history.append(evaluation_entry)
 
         return results
 
@@ -422,13 +572,54 @@ class RAGEvaluator:
         return min(max(val / 10.0, 0.0), 1.0)
 
 
+    def get_evaluation_history(self) -> List[Dict[str, Any]]:
+        """
+        Get the history of all evaluations performed.
+
+        Returns:
+            List[Dict[str, Any]]: List of evaluation entries with metrics
+        """
+        return self.evaluation_history
+
+
+    def get_average_metrics(self) -> Dict[str, float]:
+        """
+        Calculate average scores across all evaluations.
+
+        Returns:
+            Dict[str, float]: Average scores for each metric
+        """
+        if not self.evaluation_history:
+            return {}
+        
+        # Collect all metrics
+        all_metrics = {}
+        for entry in self.evaluation_history:
+            for metric_name, score in entry.get("metrics", {}).items():
+                if metric_name not in all_metrics:
+                    all_metrics[metric_name] = []
+                all_metrics[metric_name].append(score)
+        
+        # Calculate averages
+        return {
+            metric_name: sum(scores) / len(scores)
+            for metric_name, scores in all_metrics.items()
+        }
+
+
+def import_time_and_get_current_time():
+    """Import time module and get current time to avoid circular imports"""
+    import time
+    return time.time()
+
+
 
 
 # ==== PLUGIN DEFINITION ==== #
 # --► RAGASPlugin for Sentio integration
 
 
-class RAGASPlugin(SentioPlugin):
+class RAGASPlugin:
     """
     Plugin providing RAGAS evaluation capabilities.
     """
@@ -458,6 +649,43 @@ class RAGASPlugin(SentioPlugin):
             pipeline (Any): Pipeline object to attach evaluator to.
         """
         pipeline.evaluator = self.evaluator
+        
+        # Only monkey patch if automatic evaluation is enabled
+        if settings.enable_automatic_evaluation:
+            # Monkey patch the query method to automatically evaluate answers
+            original_query = pipeline.query
+            
+            async def query_with_evaluation(question: str, top_k: Optional[int] = None) -> Dict:
+                # Call the original query method
+                result = await original_query(question, top_k)
+                
+                # Extract the necessary data for evaluation
+                answer = result.get("answer", "")
+                sources = result.get("sources", [])
+                contexts = [source.get("text", "") for source in sources if "text" in source]
+                
+                # Run evaluation
+                metrics = await self.evaluator._openrouter_evaluation(question, answer, contexts, 
+                                                               ["faithfulness", "answer_relevancy", "context_relevancy"])
+                
+                # Add evaluation results to the response
+                result["evaluation"] = {
+                    "metrics": metrics,
+                    "thresholds": THRESHOLDS,
+                    "passed_thresholds": all(
+                        score >= THRESHOLDS.get(name, 0.0) 
+                        for name, score in metrics.items()
+                    )
+                }
+                
+                return result
+                
+            # Replace the original query method
+            pipeline.query = query_with_evaluation
+        
+        # Add methods to get evaluation data
+        pipeline.get_evaluation_history = self.evaluator.get_evaluation_history
+        pipeline.get_average_metrics = self.evaluator.get_average_metrics
 
 
 
@@ -465,11 +693,12 @@ class RAGASPlugin(SentioPlugin):
 # --► PLUGIN FACTORY
 
 
-def get_plugin() -> SentioPlugin:
+def get_plugin() -> RAGASPlugin:
     """
     Return a new instance of RAGASPlugin.
 
     Returns:
-        SentioPlugin: A new plugin instance.
+        RAGASPlugin: A new plugin instance.
     """
-    return RAGASPlugin()
+    use_llm_judge = settings.enable_llm_judge
+    return RAGASPlugin(use_llm_judge=use_llm_judge)
