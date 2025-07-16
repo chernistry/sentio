@@ -14,12 +14,53 @@ A production-ready, enterprise-grade RAG system with advanced features:
 """
 
 
+# ==== PATH CORRECTION & SETUP ================================================== #
+
+import sys
+from pathlib import Path
+
+def _fix_import_paths() -> None:
+    """
+    Fix Python import paths to ensure modules can be found regardless of CWD.
+    
+    This function adds the project root and plugins directory to sys.path
+    to make imports work correctly in Docker containers.
+    """
+    # Get the absolute path to the project root (two levels up from this file)
+    current_file = Path(__file__).resolve()
+    root_dir = current_file.parent
+    project_root = root_dir.parent
+    
+    # Add project root to sys.path if not already there
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+        print(f"[app] Added {project_root} to sys.path")
+    
+    # Check if plugins directory exists and add it to sys.path
+    plugins_dir = project_root / "plugins"
+    if plugins_dir.exists() and str(plugins_dir) not in sys.path:
+        sys.path.insert(0, str(plugins_dir))
+        print(f"[app] Added {plugins_dir} to sys.path")
+    
+    # Check if .env file exists in project root and load it
+    env_file = project_root / ".env"
+    if env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(dotenv_path=env_file)
+            print(f"[app] Loaded environment from {env_file}")
+        except ImportError:
+            print("[app] python-dotenv not available, skipping .env loading")
+
+# Fix paths before any other imports
+_fix_import_paths()
+
+
 # ==== IMPORTS & DEPENDENCIES ================================================== #
 
 import asyncio
 import logging
 import os
-import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -102,7 +143,8 @@ logger = logging.getLogger(__name__)
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # .env уже загружен в _fix_import_paths(), поэтому здесь просто логируем
+    logger.info("✓ Environment configuration already loaded")
 except ImportError:
     logger.warning("python-dotenv not available, using system environment only")
 
@@ -361,6 +403,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     class SimplePipeline:
                         def __init__(self):
                             self.initialized = True
+
+                        async def query(self, question: str, top_k: int | None = None) -> dict:  # noqa: D401
+                            """Stub query method required by plugin monkey-patch.
+
+                            The real implementation is not needed here because we
+                            only use the *evaluator* exposed by the plugin.
+                            """
+                            return {
+                                "answer": "",
+                                "sources": [],
+                                "metadata": {},
+                            }
                     
                     simple_pipeline = SimplePipeline()
                     
@@ -1158,6 +1212,15 @@ async def chat_handler(request: ChatRequest) -> ChatResponse:
                     contexts, 
                     ["faithfulness", "answer_relevancy", "context_relevancy"]
                 )
+                
+                # Явно сохраняем результаты оценки в историю
+                evaluation_entry = {
+                    "query": query,
+                    "answer": answer,
+                    "metrics": metrics,
+                    "timestamp": time.time()
+                }
+                ragas_evaluator.evaluation_history.append(evaluation_entry)
                 
                 # Добавляем результаты оценки в ответ
                 if not response.metadata:

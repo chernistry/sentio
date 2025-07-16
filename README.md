@@ -10,17 +10,19 @@
 
 ## Version History
 
-* **0.7.1** (Beta, Current): Modular RAG pipeline, hybrid retrieval, plugin architecture, Azure/Beam integration, improved observability. Not production-ready; for experimentation and prototyping.
+* **0.7.2** (Beta, Current): RAG evaluation endpoints, pipeline refactor (RRF-based hybrid retrieval, Pyserini support), **/clear** maintenance endpoint, expanded CLI (flush, build, index, locust), hot-swappable plugins, stronger config validation.
+* **0.7.1** (Beta): Modular RAG pipeline, hybrid retrieval, plugin architecture, Azure/Beam integration, improved observability. Not production-ready; for experimentation and prototyping.
 * **0.6.0** (Alpha): Dense retrieval, basic reranking, initial plugin system
 * **0.5.0** (Alpha): Minimal RAG pipeline, Qdrant integration
 
-> **Current Status (v0.7.1 Beta):**
-> * **Prototype**: Modular, extensible, and pluggable RAG pipeline for rapid experimentation
-> * **Hybrid Retrieval**: Dense + BM25 with configurable fusion
-> * **Flexible Deployment**: Cloud-native core, Beam/Azure integration (lab-ready)
-> * **Plugin System**: Drop-in modules for retrievers, rerankers, embedding providers
-> * **Observability**: Prometheus metrics, basic logging
-> * **Not production-ready**: No full test coverage, limited documentation, evolving API
+> **Current Status (v0.7.2 Beta):**
+> * **Prototype+**: Still experimental but stabilising core; better fault-tolerance
+> * **Hybrid Retrieval**: Dense + BM25 with Reciprocal-Rank Fusion, optional Pyserini
+> * **Evaluation**: Built-in RAGAS metrics (`/evaluation/*`)
+> * **Maintenance**: Fast collection wipe via `/clear` and extended CLI helpers
+> * **Plugin System**: Hot-swap & env-driven auto-load
+> * **Observability**: Prometheus metrics, structured logging
+> * **Not production-ready**: Coverage improving, API subject to change
 
 ---
 
@@ -330,33 +332,38 @@ After deployment, you can run basic smoke tests:
 
 ### Main Endpoints
 
-| Method | Path                  | Description                                 |
-|--------|-----------------------|---------------------------------------------|
-| GET    | /health               | Service health check                        |
-| GET    | /info                 | Runtime configuration & build info          |
-| POST   | /chat                 | Main RAG query endpoint (sync JSON)         |
-| POST   | /chat/stream          | Main RAG query endpoint (streaming SSE)     |
-| POST   | /embed                | Ingest a raw text document                  |
-| POST   | /search               | Vector similarity search                    |
-| POST   | /v1/chat/completions  | OpenAI-compatible endpoint for UI integration |
+| Method | Path                   | Description                                   |
+|--------|------------------------|-----------------------------------------------|
+| GET    | /health                | Service health check                          |
+| GET    | /info                  | Runtime configuration & build info            |
+| GET    | /evaluation/history    | Historical RAGAS metrics                      |
+| GET    | /evaluation/metrics    | Average RAGAS metrics                         |
+| POST   | /chat                  | Main RAG query endpoint (sync JSON)           |
+| POST   | /embed                 | Ingest a raw text document                    |
+| POST   | /search                | Vector similarity search                      |
+| POST   | /clear                 | Clear vector collection (dangerous)           |
 
 ### Payloads
 
-#### `/chat` & `/chat/stream`
+#### `/chat`
 
 * **Request**: `{ "question": "Your question here", "top_k": 5 }`
-* **Response** (`/chat`): `{ "answer": "...", "sources": [...] }`
-* **Response** (`/chat/stream`): Server-Sent Events (SSE) stream of answer tokens.
+* **Response**: `{ "answer": "...", "sources": [...] }`
 
 #### `/embed`
 
 * **Request**: `{ "content": "Text content to ingest." }`
-* **Response**: `{ "status": "success", "queued": false, "id": "..." }`
+* **Response**: `{ "status": "success", "document_id": "...", "chunks_added": 42 }`
 
 #### `/search`
 
 * **Request**: `{ "query": "Your search query", "limit": 10 }`
 * **Response**: `{ "results": [ ... ] }`
+
+#### `/clear`
+
+* **Request**: _none_
+* **Response**: `{ "status": "success", "message": "Collection 'Sentio_docs' deleted" }`
 
 ---
 
@@ -462,50 +469,41 @@ See the developer documentation for detailed plugin development guides.
 Sentio includes a unified CLI for common maintenance and development tasks:
 
 ```bash
-# Start the stack in development or production mode
+# Start/Stop/Restart stack
 ./run.sh start [--mode dev|prod]
-
-# Stop the stack
 ./run.sh stop
-
-# Restart the stack
 ./run.sh restart [--mode dev|prod]
 
-# Show stack status
+# Status & Logs
 ./run.sh status
-
-# View logs
 ./run.sh logs [service] [-n lines]
 
-# Ingest documents
+# Build & Flush helpers
+./run.sh build                # Fast parallel build
+./run.sh flush -y             # Danger: wipe vector DB
+
+# Indexing & Ingestion
 ./run.sh ingest [path]
+./run.sh index rebuild        # Recreate all indexes
 
-# Run tests
+# Tests & Load testing
 ./run.sh test
-
-# Run chat tests
 ./run.sh chat-test [-p preset] [-v]
+./run.sh locust -p 8089       # Launch Locust UI
 
-# Check environment variables
+# Environment diagnostics
 ./run.sh env
 
-# Docker commands
-./run.sh docker up [service]      # Start Docker containers
-./run.sh docker down              # Stop Docker containers
-./run.sh docker build [service]   # Build Docker images sequentially
-./run.sh docker bake [service]    # Build Docker images in parallel
+# Docker wrappers
+./run.sh docker up [svc]
+./run.sh docker down
+./run.sh docker build [svc]
+./run.sh docker bake [svc]
 
-# Azure infrastructure commands
-./run.sh infra deploy             # Deploy core infrastructure
-./run.sh infra secrets            # Setup Key-Vault secrets
-./run.sh infra apps               # Deploy Container Apps
-./run.sh infra build-images       # Build & push multi-arch images
-./run.sh infra full-deploy        # Complete deployment (all steps)
-./run.sh infra start              # Start Container Apps
-./run.sh infra stop               # Stop Container Apps
-./run.sh infra update             # Update with latest images
-./run.sh infra status             # Show resource status
-./run.sh infra destroy            # Destroy resources
+# Azure helpers
+./run.sh infra full-deploy
+./run.sh infra update
+./run.sh infra destroy
 ```
 
 ---
@@ -513,3 +511,9 @@ Sentio includes a unified CLI for common maintenance and development tasks:
 ## 9. License & Contributing
 
 Sentio is released under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0). Commercial use without explicit permission is strictly prohibited. Contributions are welcome—please include tests and adhere to standard code style.
+
+## 10. Stay Tuned
+
+* SSE streaming endpoint (`/chat/stream`) returns soon with token-level output.
+* OpenAI-compatible `/v1/chat/completions` under active development.
+* Multi-tenant auth & rate-limits planned for v0.8.

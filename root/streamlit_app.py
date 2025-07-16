@@ -331,5 +331,16 @@ with tabs[2]:
                 }.get(name, 0.0)
                 color = "green" if score >= threshold else "red"
                 st.markdown(f"* **{name}**: <span style='color:{color}'>{score:.3f}</span> (threshold: {threshold:.2f})", unsafe_allow_html=True)
+            
+            # Show raw RAGAS response and parsing errors if available
+            if selected.get("raw_response") is not None:
+                st.subheader("Raw RAGAS Response")
+                st.json(selected["raw_response"])
+            if selected.get("raw_text"):
+                st.subheader("Raw RAGAS Response Text")
+                st.text(selected["raw_text"])
+            if selected.get("parse_error"):
+                st.subheader("Parsing Error")
+                st.error(selected["parse_error"])
     else:
         st.info("No evaluation history available yet. Ask some questions to generate evaluation data.") 

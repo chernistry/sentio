@@ -18,10 +18,47 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import os
 from types import ModuleType
 from typing import Any
+from pathlib import Path
 
 # Lazy import to avoid unnecessary startup cost if the module graph changes.
+
+def _fix_import_paths() -> None:
+    """
+    Fix Python import paths to ensure modules can be found regardless of CWD.
+    
+    This function adds the project root and plugins directory to sys.path
+    to make imports work correctly in Docker containers.
+    """
+    # Get the absolute path to the project root (two levels up from this file)
+    current_file = Path(__file__).resolve()
+    utils_dir = current_file.parent
+    src_dir = utils_dir.parent
+    root_dir = src_dir.parent
+    project_root = root_dir.parent
+    
+    # Add project root to sys.path if not already there
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+        print(f"[docker_wrapper] Added {project_root} to sys.path")
+    
+    # Check if plugins directory exists and add it to sys.path
+    plugins_dir = project_root / "plugins"
+    if plugins_dir.exists() and str(plugins_dir) not in sys.path:
+        sys.path.insert(0, str(plugins_dir))
+        print(f"[docker_wrapper] Added {plugins_dir} to sys.path")
+    
+    # Check if .env file exists in project root and load it
+    env_file = project_root / ".env"
+    if env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(dotenv_path=env_file)
+            print(f"[docker_wrapper] Loaded environment from {env_file}")
+        except ImportError:
+            print("[docker_wrapper] python-dotenv not available, skipping .env loading")
 
 def _import_ingest() -> ModuleType:  # noqa: D401 – imperative form is OK
     """Import the *src.etl.ingest* module safely.
@@ -48,6 +85,9 @@ def _import_ingest() -> ModuleType:  # noqa: D401 – imperative form is OK
 
 def _run() -> None:  # noqa: D401
     """Entrypoint helper that executes *ingest.main* asynchronously."""
+    # Fix import paths before attempting any imports
+    _fix_import_paths()
+    
     ingest_mod: ModuleType = _import_ingest()
 
     # *ingest.main* is an *async def* that expects *sys.argv* to already contain

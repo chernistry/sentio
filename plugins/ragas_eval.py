@@ -106,8 +106,8 @@ class RAGASPlugin(SentioPlugin):
             pipeline.get_average_metrics = self.get_average_metrics
             logger.info(f"✅ Added get_average_metrics to pipeline: {hasattr(pipeline, 'get_average_metrics')}")
             
-            # Only monkey patch if automatic evaluation is enabled
-            if settings.enable_automatic_evaluation:
+            # Only monkey patch if automatic evaluation is enabled AND pipeline has query method
+            if settings.enable_automatic_evaluation and hasattr(pipeline, 'query'):
                 logger.info("🔄 Monkey patching pipeline.query with evaluation")
                 # Store original query method
                 original_query = pipeline.query
@@ -153,6 +153,8 @@ class RAGASPlugin(SentioPlugin):
                 # Replace the original query method
                 pipeline.query = query_with_evaluation
                 logger.info("✅ Monkey patched pipeline.query with evaluation")
+            elif settings.enable_automatic_evaluation:
+                logger.info("⚠️ Pipeline does not have 'query' method, skipping monkey patching")
             
             logger.info(f"✅ RAGAS plugin registration complete. Pipeline has evaluator: {hasattr(pipeline, 'evaluator')}")
             logger.info(f"Pipeline methods: get_evaluation_history={hasattr(pipeline, 'get_evaluation_history')}, get_average_metrics={hasattr(pipeline, 'get_average_metrics')}")

@@ -1,48 +1,31 @@
-from __future__ import annotations
+"""
+Interface definitions for Sentio plugins.
 
-"""Base plugin interface for Sentio."""
+This module defines the base classes and interfaces that all Sentio plugins
+must implement to be compatible with the plugin system.
+"""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 
 class SentioPlugin(ABC):
-    """Abstract base class for all plugins.
+    """Base class for all Sentio plugins."""
 
-    Attributes:
-        name: Human-readable plugin name used for discovery.
-        plugin_type: Functional area the plugin extends (e.g., *reranker*, *embedding*).
-        version: Semantic version string so the host can manage compatibility.
-        description: Short one-line description visible in plugin listings.
-    """
-
-    # ---------------- Mandatory metadata ---------------- #
-    name: str
-    plugin_type: str
-
-    # ---------------- Optional metadata ----------------- #
+    name: str = "base_plugin"
+    plugin_type: str = "generic"
     version: str = "0.1.0"
-    description: str = ""
-
-    # ------------------------------------------------------------------
-    # Lifecycle hooks
-    # ------------------------------------------------------------------
+    description: str = "Base plugin interface"
 
     @abstractmethod
-    def register(self, pipeline: Any) -> None:  # noqa: D401 – imperative mood
-        """Attach plugin to the *pipeline* instance.
-
-        Implementations should mutate the *pipeline* by adding or replacing
-        components.  They **must not** perform heavyweight initialisation in
-        this method – do that in ``__init__`` so failures surface early.
+    def register(self, pipeline: Any) -> None:
         """
-
-    # New but optional: provide safe default so existing plugins remain valid.
-    def unregister(self, pipeline: Any) -> None:  # noqa: D401 – imperative mood
-        """Detach plugin from *pipeline*.
-
-        This enables hot-swapping at runtime.  Default implementation is a
-        no-op to preserve backward compatibility.
+        Register the plugin with a pipeline or application.
+        
+        This method is called when the plugin is loaded and should
+        attach any necessary components or monkey-patch the pipeline.
+        
+        Args:
+            pipeline: The pipeline or application object to register with.
         """
-        # Default no-op – override if cleanup is required.
-        return
+        pass

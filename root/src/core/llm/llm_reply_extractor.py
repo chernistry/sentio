@@ -8,7 +8,8 @@ import os
 from pathlib import Path
 
 # Integrate ChatAdapter for optional fixing
-from root.src.core.chat.chat_adapter import ChatAdapter  # pylint: disable=wrong-import-position
+# Используем относительный импорт вместо абсолютного, чтобы избежать проблем с путями
+from .chat_adapter import ChatAdapter  # Относительный импорт
 from root.src.utils.settings import settings  # pylint: disable=wrong-import-position
 
 # Try importing json5, but don't make it a hard requirement if unavailable

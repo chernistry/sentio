@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from root.src.core.llm.chat_adapter import chat_completion
 from root.src.utils.settings import settings
+from root.src.core.llm.llm_reply_extractor import extract_json_dict_sync
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -335,6 +336,12 @@ class RAGEvaluator:
             Dict[str, float]: Mapping of metrics to scores (0.0-1.0).
         """
         try:
+            # Check if we have contexts and answer
+            if not contexts:
+                logger.warning("Empty contexts provided for evaluation")
+            if not answer.strip():
+                logger.warning("Empty answer provided for evaluation")
+                
             context_text = "\n\n".join(contexts)
             
             # Format the prompt with query, answer, and context
@@ -345,49 +352,139 @@ class RAGEvaluator:
             )
             
             # Prepare the payload for the chat_completion function
+            # NOTE: Some models (including many served via OpenRouter) do **not** yet
+            # support the official OpenAI `response_format` parameter and will raise
+            # a 400 validation error when it is present.  This previously caused the
+            # call to always fail and triggered the fallback branch that returns a
+            # neutral 0.5 score for every metric.  We therefore omit the parameter
+            # completely and rely on prompt-based JSON forcing instead.
+
+            # NOTE: capturing raw response and potential parsing errors for debugging
+            raw_response = None
+            raw_text = None
+            parse_error = None
             payload = {
                 "model": self.ragas_model,
                 "messages": [
-                    {"role": "system", "content": "You are an expert RAG system evaluator."},
+                    {"role": "system", "content": "You are an expert RAG system evaluator. Output ONLY valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.0,
                 "stream": False,
             }
             
+            # Log the request payload and model being used
+            logger.info(f"RAGAS evaluation using model: {self.ragas_model}")
+            logger.info(f"RAGAS evaluation API key prefix: {settings.chat_llm_api_key[:8] if settings.chat_llm_api_key else 'None'}")
+            logger.info(f"RAGAS evaluation base URL: {settings.chat_llm_base_url}")
+            logger.debug(f"RAGAS evaluation payload: {payload}")
+            
             # Call the chat_completion function
+            logger.info("Sending request to OpenRouter API for RAGAS evaluation")
             response = await chat_completion(payload)
+            raw_response = response
+            
+            # Log the raw response for debugging
+            if isinstance(response, dict):
+                logger.info(f"RAGAS evaluation response type: dict with keys {list(response.keys())}")
+            else:
+                logger.info(f"RAGAS evaluation response type: {type(response)}")
+            
+            logger.debug(f"RAGAS evaluation raw response: {response}")
             
             if isinstance(response, dict) and "choices" in response:
                 response_text = response["choices"][0]["message"]["content"]
+                raw_text = response_text
+                logger.info(f"RAGAS evaluation response text: {response_text[:200]}...")
                 
                 # Try to parse JSON from the response
                 try:
-                    json_start = response_text.find("{")
-                    json_end = response_text.rfind("}") + 1
-                    if json_start >= 0 and json_end > json_start:
-                        json_str = response_text[json_start:json_end]
-                        metrics_data = json.loads(json_str)
-                        
-                        # Extract metrics from the parsed JSON
-                        results = {}
-                        for metric_name in metrics:
-                            if metric_name in metrics_data:
-                                results[metric_name] = float(metrics_data[metric_name])
-                        
-                        # Store evaluation results in history
-                        evaluation_entry = {
-                            "query": query,
-                            "answer": answer,
-                            "metrics": results,
-                            "timestamp": time.time(),
-                            "method": "openrouter"
-                        }
-                        self.evaluation_history.append(evaluation_entry)
-                        
-                        return results
+                    # First try using the robust JSON extractor
+                    metrics_data = extract_json_dict_sync(response_text)
+                    
+                    if metrics_data:
+                        logger.info(f"Successfully extracted JSON using llm_reply_extractor: {metrics_data}")
+                    else:
+                        # Extract JSON from the response text which may contain markdown code blocks
+                        json_match = re.search(r'```(?:json)?\s*({[\s\S]*?})\s*```', response_text)
+                        if json_match:
+                            json_str = json_match.group(1)
+                            logger.info(f"Extracted JSON from code block: {json_str}")
+                            metrics_data = json.loads(json_str)
+                        else:
+                            # If no code block, try to find JSON directly
+                            json_start = response_text.find("{")
+                            json_end = response_text.rfind("}") + 1
+                            if json_start >= 0 and json_end > json_start:
+                                json_str = response_text[json_start:json_end]
+                                logger.info(f"Extracted JSON string: {json_str}")
+                                metrics_data = json.loads(json_str)
+                            else:
+                                # Try one more approach - look for numbers in the text
+                                logger.info("No JSON found, trying to extract scores directly from text")
+                                metrics_data = {}
+                                
+                                # Look for metrics in text format
+                                for metric_name in metrics:
+                                    pattern = rf"{metric_name}[:\s=]+(\d+(?:\.\d+)?)"
+                                    match = re.search(pattern, response_text.lower(), re.IGNORECASE)
+                                    if match:
+                                        metrics_data[metric_name] = float(match.group(1))
+                                        logger.info(f"Found {metric_name} score: {metrics_data[metric_name]}")
+                                
+                                if not metrics_data:
+                                    raise ValueError("No JSON or metrics found in response")
+                    
+                    logger.info(f"Parsed metrics data: {metrics_data}")
+                    
+                    # ------------------------------------------------------------------
+                    # Normalise keys (strip non-alpha chars & lower-case) so that minor
+                    # spelling variations like "answer relevancy" or "answer_relevancy"
+                    # still map correctly.  Afterwards, coerce values to the 0-1 range.
+                    # ------------------------------------------------------------------
+
+                    norm_map = {
+                        re.sub(r"[^a-z]", "", k.lower()): v for k, v in metrics_data.items()
+                    }
+
+                    results = {}
+                    for metric_name in metrics:
+                        norm_key = re.sub(r"[^a-z]", "", metric_name.lower())
+                        if norm_key in norm_map:
+                            value = float(norm_map[norm_key])
+                            # Convert 0-10 scale → 0-1 if needed
+                            if value > 1.0:
+                                value = value / 10.0 if value <= 10.0 else 1.0
+                            results[metric_name] = value
+                        else:
+                            logger.warning(
+                                "Metric %s not found in response (keys=%s)",
+                                metric_name,
+                                list(metrics_data.keys()),
+                            )
+                            results[metric_name] = 0.5  # Fallback neutral value
+                    
+                    logger.info(f"Final RAGAS metrics: {results}")
+                    
+                    # Store evaluation results in history
+                    evaluation_entry = {
+                        "query": query,
+                        "answer": answer,
+                        "metrics": results,
+                        "timestamp": time.time(),
+                        "method": "openrouter",
+                        "raw_response": raw_response,
+                        "raw_text": raw_text,
+                        "parse_error": parse_error,
+                    }
+                    self.evaluation_history.append(evaluation_entry)
+                    
+                    return results
                 except (json.JSONDecodeError, ValueError) as e:
-                    logger.warning(f"Failed to parse JSON from OpenRouter response: {e}")
+                    logger.error(f"Failed to parse JSON from OpenRouter response: {e}")
+                    logger.error(f"Response text that failed to parse: {response_text}")
+            else:
+                logger.error(f"Unexpected response format from OpenRouter: {response}")
             
             # Fallback to default scores if parsing fails
             logger.warning("OpenRouter evaluation failed, using default scores")
@@ -399,13 +496,16 @@ class RAGEvaluator:
                 "answer": answer,
                 "metrics": results,
                 "timestamp": time.time(),
-                "method": "openrouter_fallback"
+                "method": "openrouter_fallback",
+                "raw_response": raw_response,
+                "raw_text": raw_text,
+                "parse_error": parse_error,
             }
             self.evaluation_history.append(evaluation_entry)
             
             return results
         except Exception as e:
-            logger.error(f"OpenRouter evaluation error: {e}")
+            logger.error(f"OpenRouter evaluation error: {e}", exc_info=True)
             return {metric: 0.5 for metric in metrics}
 
     def _llm_judge_evaluation(
@@ -575,3 +675,84 @@ class RAGEvaluator:
             metric_name: sum(scores) / len(scores)
             for metric_name, scores in all_metrics.items()
         } 
+        
+    async def test_openrouter_evaluation(self, query: str, answer: str, contexts: List[str]) -> Dict[str, Any]:
+        """
+        Test method to directly evaluate using OpenRouter with detailed debugging.
+        
+        Args:
+            query: User query
+            answer: Generated answer
+            contexts: List of context passages
+            
+        Returns:
+            Dict with full response details for debugging
+        """
+        context_text = "\n\n".join(contexts)
+        
+        # Format the prompt with query, answer, and context
+        prompt = self.ragas_prompt.format(
+            query=query,
+            answer=answer,
+            context=context_text
+        )
+        
+        # Prepare the payload for the chat_completion function
+        payload = {
+            "model": self.ragas_model,
+            "messages": [
+                {"role": "system", "content": "You are an expert RAG system evaluator."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.0,
+            "stream": False,
+        }
+        
+        # Log everything
+        logger.info(f"TEST EVALUATION - Model: {self.ragas_model}")
+        logger.info(f"TEST EVALUATION - API Key: {settings.chat_llm_api_key[:8] if settings.chat_llm_api_key else 'None'}")
+        logger.info(f"TEST EVALUATION - Base URL: {settings.chat_llm_base_url}")
+        logger.info(f"TEST EVALUATION - Prompt: {prompt[:200]}...")
+        
+        # Direct call to OpenRouter API
+        import httpx
+        
+        headers = {
+            "Authorization": f"Bearer {settings.chat_llm_api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        try:
+            async with httpx.AsyncClient(base_url=settings.chat_llm_base_url, timeout=60.0) as client:
+                logger.info("TEST EVALUATION - Sending direct request to OpenRouter API")
+                response = await client.post("/chat/completions", json=payload, headers=headers)
+                response.raise_for_status()
+                
+                result = response.json()
+                logger.info(f"TEST EVALUATION - Response status: {response.status_code}")
+                logger.info(f"TEST EVALUATION - Response headers: {response.headers}")
+                logger.info(f"TEST EVALUATION - Response body: {result}")
+                
+                if "choices" in result and result["choices"]:
+                    content = result["choices"][0]["message"]["content"]
+                    logger.info(f"TEST EVALUATION - Content: {content[:200]}...")
+                    
+                    # Try to extract metrics
+                    metrics_data = extract_json_dict_sync(content)
+                    if metrics_data:
+                        logger.info(f"TEST EVALUATION - Extracted metrics: {metrics_data}")
+                    else:
+                        logger.warning("TEST EVALUATION - Failed to extract metrics from response")
+                
+                return {
+                    "status": "success",
+                    "raw_response": result,
+                    "extracted_metrics": metrics_data if 'metrics_data' in locals() else None
+                }
+                
+        except Exception as e:
+            logger.error(f"TEST EVALUATION - Error: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e)
+            } 
