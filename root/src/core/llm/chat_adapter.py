@@ -19,9 +19,10 @@ The active endpoint, model and API key are taken from :pydata:`utils.settings`.
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, Dict, Union
+from typing import Any, AsyncGenerator, Dict, Union, Optional
 
 import httpx
+from httpx import HTTPError
 
 from root.src.utils.settings import settings
 
@@ -268,9 +269,11 @@ class ChatAdapter:
 _adapter: ChatAdapter | None = None
 
 
-async def chat_completion(payload: Dict[str, Any]) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
-    """Singleton wrapper for :pymeth:`ChatAdapter.chat_completion`."""
-    global _adapter  # noqa: PLW0603
+async def chat_completion(
+    payload: Dict[str, Any],
+) -> Union[Dict[str, Any], AsyncGenerator[str, None]]:
+    """Convenience facade that re-uses a singleton ``ChatAdapter``."""
+    global _adapter  # noqa: PLW0603 – module-level cache is fine here
     if _adapter is None:
         _adapter = ChatAdapter()
     return await _adapter.chat_completion(payload)

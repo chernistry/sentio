@@ -111,6 +111,9 @@ async def evaluation_history_endpoint():
         if hasattr(pipeline, "get_evaluation_history"):
             history = pipeline.get_evaluation_history()
             return history
+        elif hasattr(pipeline, "evaluator") and hasattr(pipeline.evaluator, "get_evaluation_history"):
+            history = pipeline.evaluator.get_evaluation_history()
+            return history
         else:
             raise HTTPException(status_code=404, detail="RAGAS evaluation not enabled")
     except Exception as e:
@@ -128,6 +131,9 @@ async def evaluation_metrics_endpoint():
         # Check if average metrics method exists
         if hasattr(pipeline, "get_average_metrics"):
             metrics = pipeline.get_average_metrics()
+            return metrics
+        elif hasattr(pipeline, "evaluator") and hasattr(pipeline.evaluator, "get_average_metrics"):
+            metrics = pipeline.evaluator.get_average_metrics()
             return metrics
         else:
             raise HTTPException(status_code=404, detail="RAGAS evaluation not enabled")

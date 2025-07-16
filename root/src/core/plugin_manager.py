@@ -72,6 +72,49 @@ class PluginManager:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Plugin %s failed to register: %s", plugin.name, exc)
 
+    def register_plugin(self, plugin: SentioPlugin, pipeline: object = None) -> None:
+        """Register a single plugin instance with the pipeline.
+        
+        Args:
+            plugin: Plugin instance to register
+            pipeline: Optional pipeline to register with
+        """
+        if not isinstance(plugin, SentioPlugin):
+            logger.warning("%s is not a valid plugin", plugin)
+            return
+            
+        # Add to plugin registry
+        self._plugins.append(plugin)
+        self._plugin_map[plugin.name] = plugin
+        
+        # Register with pipeline if provided
+        if pipeline:
+            try:
+                logger.info(f"Registering plugin {plugin.name} with pipeline")
+                logger.info(f"Plugin has register method: {hasattr(plugin, 'register')}")
+                
+                # Вызываем метод register плагина
+                plugin.register(pipeline)
+                
+                # Проверяем, что плагин успешно добавил evaluator к pipeline
+                if hasattr(pipeline, "evaluator"):
+                    logger.info(f"✅ Plugin {plugin.name} successfully registered evaluator")
+                    if hasattr(pipeline.evaluator, "get_evaluation_history"):
+                        logger.info("✅ get_evaluation_history method available")
+                    else:
+                        logger.warning("⚠️ get_evaluation_history method NOT available")
+                        
+                    if hasattr(pipeline.evaluator, "get_average_metrics"):
+                        logger.info("✅ get_average_metrics method available")
+                    else:
+                        logger.warning("⚠️ get_average_metrics method NOT available")
+                else:
+                    logger.warning(f"⚠️ Plugin {plugin.name} failed to register evaluator")
+                
+                logger.info(f"✅ Registered plugin: {plugin.name}")
+            except Exception as exc:  # noqa: BLE001
+                logger.error(f"Plugin {plugin.name} failed to register: {exc}", exc_info=True)
+
     # ------------------------------------------------------------------
     # Discovery & Hot swapping
     # ------------------------------------------------------------------

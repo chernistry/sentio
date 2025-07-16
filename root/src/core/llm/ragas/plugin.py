@@ -4,13 +4,23 @@ This module provides a plugin that integrates RAGAS evaluation capabilities
 with the Sentio RAG pipeline.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
+from plugins.interface import SentioPlugin
 from root.src.utils.settings import settings
 from .evaluator import RAGEvaluator
 
 
-class RAGASPlugin:
+# NOTE: Must extend ``SentioPlugin`` so that the core ``PluginManager``
+# can recognise and register the plugin.  Otherwise attribute-based
+# monkey-patching (e.g. ``pipeline.get_evaluation_history``) will never
+# be exposed and API endpoints will return 404.
+#
+# The implementation remains the same – we only gain the abstract
+# interface contract plus automatic loading via ``PluginManager``.
+
+
+class RAGASPlugin(SentioPlugin):
     """
     Plugin providing RAGAS evaluation capabilities.
     """

@@ -1,16 +1,18 @@
 import os
 import logging
 import asyncio
+import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api.routes import router
+from .api.routes import router, pipeline
 from .core.plugin_manager import PluginManager
+import importlib
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -25,41 +27,69 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(router)
-
-# Initialize plugin manager
 plugin_manager = PluginManager()
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize components on startup."""
+    """Initialize pipeline and plugins on startup."""
     try:
-        logger.info("Loading plugins...")
-        # Load plugins from environment variables
+        logger.info("Server starting up...")
+        
+        # Initialize the main RAG pipeline first
+        if not pipeline.initialized:
+            await pipeline.initialize()
+        
+        # Discover and load plugins from the environment
         plugin_manager.load_from_env()
         
-        # Load RAGAS evaluator plugin
+        # Register all loaded plugins with the pipeline instance
+        plugin_manager.register_all(pipeline)
+        
+        # Explicitly load and register RAGAS plugin from plugins directory
         try:
-            # Import from the new core module location
-            from root.src.core.llm.ragas import get_plugin
-            ragas_plugin = get_plugin()
-            plugin_manager.register_plugin(ragas_plugin)
-            logger.info("✅ RAGAS evaluation plugin loaded successfully")
-        except ImportError as e:
-            logger.warning(f"RAGAS plugin not available: {e}")
-        except Exception as e:
-            logger.error(f"Error loading RAGAS plugin: {e}")
+            # Import the plugin module
+            ragas_module = importlib.import_module("plugins.ragas_eval")
+            ragas_plugin = ragas_module.get_plugin()
             
-        logger.info("Application startup complete")
+            logger.info(f"Explicitly loading RAGAS plugin: {ragas_plugin.name}")
+            plugin_manager.register_plugin(ragas_plugin, pipeline)
+            
+            # Проверка успешности регистрации
+            if hasattr(pipeline, "evaluator"):
+                logger.info("✅ RAGAS plugin registered successfully, evaluator is available")
+                logger.info(f"Evaluator methods: get_evaluation_history={hasattr(pipeline.evaluator, 'get_evaluation_history')}, get_average_metrics={hasattr(pipeline.evaluator, 'get_average_metrics')}")
+                logger.info(f"Pipeline methods: get_evaluation_history={hasattr(pipeline, 'get_evaluation_history')}, get_average_metrics={hasattr(pipeline, 'get_average_metrics')}")
+                
+                # Доступ к методам через pipeline.evaluator
+                if hasattr(pipeline.evaluator, "get_evaluation_history"):
+                    history = pipeline.evaluator.get_evaluation_history()
+                    logger.info(f"Evaluation history entries: {len(history)}")
+            else:
+                logger.warning("⚠️ RAGAS plugin registered but evaluator attribute not found on pipeline")
+        except Exception as e:
+            logger.error(f"Failed to load RAGAS plugin: {e}", exc_info=True)
+
     except Exception as e:
-        logger.error(f"Error during startup: {e}")
+        logger.critical(f"FATAL: Server startup failed - {e}", exc_info=True)
+
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Add a custom header to the response to measure processing time."""
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
+# Include the API router
+app.include_router(router)
 
 @app.on_event("shutdown")
 async def shutdown_event():
