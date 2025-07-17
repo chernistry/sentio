@@ -89,3 +89,4 @@ prompt.md
 .tree.md
 
 plugins/ragas_examples/*
+*.pckl

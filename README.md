@@ -517,3 +517,41 @@ Sentio is released under the Creative Commons Attribution-NonCommercial 4.0 Inte
 * SSE streaming endpoint (`/chat/stream`) returns soon with token-level output.
 * OpenAI-compatible `/v1/chat/completions` under active development.
 * Multi-tenant auth & rate-limits planned for v0.8.
+
+## LangGraph Studio Integration
+
+Sense now integrates with LangGraph Studio for visual debugging and analysis of the RAG pipeline. This allows you to visualize the flow of data through the graph, inspect the state at each node, and debug any issues.
+
+### Setup
+
+1. Make sure you have installed the required dependencies:
+   ```bash
+   pip install --upgrade "langgraph-cli[inmem]"
+   ```
+
+2. Set up your LangSmith API key in the `.env` file:
+   ```
+   LANGCHAIN_API_KEY=your_langsmith_api_key
+   ```
+
+3. Start the LangGraph Server:
+   ```bash
+   python scripts/langgraph_server.py
+   ```
+
+4. Connect to LangGraph Studio through your browser:
+   ```
+   https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+   ```
+
+### Features
+
+- **Visual Graph Inspection**: See how data flows through the RAG pipeline
+- **Node State Analysis**: Inspect the state at each node in the graph
+- **Interactive Testing**: Send test queries and see how they're processed
+- **Debugging**: Identify bottlenecks and issues in your pipeline
+
+### Available Graphs
+
+- **Basic RAG Graph**: The standard RAG pipeline with all nodes
+- **Streaming RAG Graph**: Streaming-enabled version of the RAG pipeline

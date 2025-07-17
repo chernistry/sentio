@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, Callable
 
 from plugins.interface import SentioPlugin
 from pathlib import Path
@@ -23,6 +23,9 @@ class PluginManager:
         self._plugins: List[SentioPlugin] = []
         self._plugin_map: Dict[str, SentioPlugin] = {}
         self._modules: Dict[str, ModuleType] = {}
+        
+        # LangGraph node registry
+        self._graph_nodes: Dict[str, Dict[str, Callable]] = {}
 
     def load_from_env(self) -> None:
         """Load plugins listed in ``SENTIO_PLUGINS`` env var."""
@@ -114,6 +117,65 @@ class PluginManager:
                 logger.info(f"✅ Registered plugin: {plugin.name}")
             except Exception as exc:  # noqa: BLE001
                 logger.error(f"Plugin {plugin.name} failed to register: {exc}", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # LangGraph node registration
+    # ------------------------------------------------------------------
+    
+    def register_graph_node(self, graph_type: str, node_name: str, node_func: Callable) -> None:
+        """
+        Register a custom node function for a specific graph type.
+        
+        Args:
+            graph_type: Type of graph (e.g., 'basic', 'streaming')
+            node_name: Name of the node in the graph
+            node_func: Node function to register
+        """
+        if graph_type not in self._graph_nodes:
+            self._graph_nodes[graph_type] = {}
+        
+        self._graph_nodes[graph_type][node_name] = node_func
+        logger.info(f"✅ Registered graph node: {node_name} for {graph_type} graph")
+    
+    def get_graph_nodes(self, graph_type: str) -> Dict[str, Callable]:
+        """
+        Get all registered node functions for a specific graph type.
+        
+        Args:
+            graph_type: Type of graph (e.g., 'basic', 'streaming')
+            
+        Returns:
+            Dictionary of node names to node functions
+        """
+        return self._graph_nodes.get(graph_type, {})
+    
+    def has_graph_node(self, graph_type: str, node_name: str) -> bool:
+        """
+        Check if a node is registered for a specific graph type.
+        
+        Args:
+            graph_type: Type of graph (e.g., 'basic', 'streaming')
+            node_name: Name of the node in the graph
+            
+        Returns:
+            True if node exists, False otherwise
+        """
+        return graph_type in self._graph_nodes and node_name in self._graph_nodes[graph_type]
+    
+    def get_graph_node(self, graph_type: str, node_name: str) -> Optional[Callable]:
+        """
+        Get a specific node function for a graph type.
+        
+        Args:
+            graph_type: Type of graph (e.g., 'basic', 'streaming')
+            node_name: Name of the node in the graph
+            
+        Returns:
+            Node function if found, None otherwise
+        """
+        if not self.has_graph_node(graph_type, node_name):
+            return None
+        return self._graph_nodes[graph_type][node_name]
 
     # ------------------------------------------------------------------
     # Discovery & Hot swapping

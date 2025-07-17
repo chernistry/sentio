@@ -95,6 +95,9 @@ class SentioSettings(BaseSettings):
     ragas_context_relevancy_threshold: float = Field(0.7, env="RAGAS_CONTEXT_RELEVANCY_THRESHOLD")
     enable_automatic_evaluation: bool = Field(True, env="ENABLE_AUTOMATIC_EVALUATION")
 
+    # LangGraph integration flag
+    use_langgraph: bool = Field(True, env="USE_LANGGRAPH")
+
     # Beam Cloud configuration
     beam_api_token: str | None = Field(None, env="BEAM_API_TOKEN")
     beam_volume: str = Field("comfy-weights", env="BEAM_VOLUME")
