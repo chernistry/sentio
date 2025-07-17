@@ -231,17 +231,22 @@ def _add_embed_sync_to_base():
                 return cached
                 
             try:
-                # Используем синхронную обертку вокруг асинхронного метода
+                # Если текущий event loop уже запущен, создаём временный цикл
                 try:
-                    # Пробуем получить текущий event loop
-                    loop = asyncio.get_event_loop()
+                    loop = asyncio.get_running_loop()
+                    # Нельзя вызывать run_until_complete на работающем loop → создаём новый
+                    _tmp_loop = asyncio.new_event_loop()
+                    try:
+                        embedding = _tmp_loop.run_until_complete(self.embed_async_single(text))
+                    finally:
+                        _tmp_loop.close()
                 except RuntimeError:
-                    # Если loop не запущен, создаем новый
+                    # Нет активного цикла – можно создать и использовать напрямую
                     loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    
-                # Запускаем асинхронный метод синхронно
-                embedding = loop.run_until_complete(self.embed_async_single(text))
+                    try:
+                        embedding = loop.run_until_complete(self.embed_async_single(text))
+                    finally:
+                        loop.close()
                 return embedding
             except Exception as e:
                 logger.error(f"Failed to get embedding synchronously: {e}")

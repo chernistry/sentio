@@ -168,6 +168,12 @@ class HybridRetriever:
             for pid, score in sorted_items
         ]
 
+    async def retrieve_async(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:  # noqa: D401
+        """Асинхронная обертка над retrieve() для безопасного вызова в event loop."""
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: self.retrieve(query, top_k))
+
     # ---------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------

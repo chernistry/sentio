@@ -647,7 +647,11 @@ class SentioRAGPipeline:
         """Perform hybrid retrieval using dense + sparse."""
         if not self.retriever:
             return await self._dense_retrieval(query, top_k)
-        results = self.retriever.retrieve(query, top_k=top_k)
+        # Если у retriever есть асинхронная версия – используем её, чтобы избежать блокировки event loop
+        if hasattr(self.retriever, 'retrieve_async'):
+            results = await self.retriever.retrieve_async(query, top_k=top_k)  # type: ignore[attr-defined]
+        else:
+            results = self.retriever.retrieve(query, top_k=top_k)
         return [
             {
                 'text': result.get('text', ''),
