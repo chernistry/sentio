@@ -48,6 +48,7 @@ class JinaReranker:
         self,
         model_name: str | None = None,
         api_key: str | None = None,
+        provider: str | None = None,  # Added provider parameter
     ) -> None:
         """
         Initializes the JinaReranker instance.
@@ -58,6 +59,7 @@ class JinaReranker:
                 is used.
             api_key (str | None): Jina API key. If None, the JINA_API_KEY
                 environment variable is used.
+            provider (str | None): Provider identifier, ignored by this implementation.
 
         Raises:
             ValueError: If no API key is provided or found in environment.

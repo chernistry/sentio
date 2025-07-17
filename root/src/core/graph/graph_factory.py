@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Callable
 import inspect
 from functools import partial
 import asyncio
+import nest_asyncio  # Добавлен импорт nest_asyncio
 
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
@@ -26,6 +27,11 @@ from .ragas_node import ragas_evaluation_node
 from .streaming import stream_generator_node, StreamingWrapper
 from .hyde_node import hyde_expansion_node
 
+# Применяем nest_asyncio для предотвращения ошибки "this event loop is already running"
+try:
+    nest_asyncio.apply()
+except Exception as e:
+    logging.getLogger(__name__).warning(f"Failed to apply nest_asyncio: {e}")
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -55,6 +61,7 @@ async def get_pipeline() -> SentioRAGPipeline:
                 logger.info("Initializing RAG pipeline for LangGraph server...")
                 # Create instance if it doesn't exist or is not initialized
                 if _pipeline_instance is None:
+                    # Note: We don't pass settings here as it's imported directly in pipeline.py
                     _pipeline_instance = SentioRAGPipeline()
                 
                 await _pipeline_instance.initialize()
@@ -62,9 +69,11 @@ async def get_pipeline() -> SentioRAGPipeline:
     return _pipeline_instance
 
 
+# Wrapper for graph nodes to ensure pipeline is ready
 async def run_with_pipeline(node_func: Callable, state: "RAGState") -> "RAGState":
     """
-    Wrapper that ensures the pipeline is initialized before executing a graph node.
+    A wrapper that ensures the pipeline is initialized before executing a graph node.
+    It injects the initialized pipeline instance into the node's execution.
     """
     pipeline = await get_pipeline()
     return await node_func(state, pipeline=pipeline)
@@ -110,7 +119,7 @@ def input_normalizer_node(state: RAGState) -> RAGState:
     return state
 
 
-async def retriever_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAGState:
+async def retriever_node(state: RAGState, *, pipeline) -> RAGState:
     """
     Retrieve relevant documents for the query.
     
@@ -134,7 +143,7 @@ async def retriever_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAG
     return state
 
 
-async def reranker_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAGState:
+async def reranker_node(state: RAGState, *, pipeline) -> RAGState:
     """
     Rerank retrieved documents.
     
@@ -158,7 +167,7 @@ async def reranker_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAGS
     return state
 
 
-async def generator_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAGState:
+async def generator_node(state: RAGState, *, pipeline) -> RAGState:
     """
     Generate an answer based on the query and context.
     
@@ -185,6 +194,14 @@ async def generator_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAG
     state.metadata["timestamp"] = generation_result.timestamp
     
     return state
+
+
+async def _ensure_pipeline(node_func: Callable, state: RAGState, pipeline: SentioRAGPipeline) -> RAGState:
+    """Wrapper to ensure pipeline is initialized before running a node."""
+    if not pipeline.initialized:
+        # This will use the singleton logic to initialize if needed
+        pipeline = await get_pipeline()
+    return await node_func(state, pipeline=pipeline)
 
 
 def post_processor_node(state: RAGState) -> RAGState:
@@ -235,21 +252,28 @@ register_builtin_nodes()
 
 # ==== GRAPH FACTORY ==== #
 
-def _build_graph_from_nodes(graph_type: str, config: PipelineConfig) -> StateGraph:
-    """A unified factory to construct a graph from registered nodes."""
+def build_graph(
+    graph_type: str, 
+    settings: PipelineConfig
+) -> StateGraph:
+    """Builds a RAG graph based on the specified type and settings."""
     graph = StateGraph(RAGState)
     registered_nodes = plugin_manager.get_graph_nodes(graph_type)
 
-    nodes_requiring_pipeline = {
-        "retriever", "reranker", "generator", "hyde_expander", "ragas_evaluator"
-    }
+    # Standard nodes that require the pipeline instance
+    nodes_with_pipeline = [
+        "retriever", "reranker", "generator", 
+        "hyde_expander", "ragas_evaluator"
+    ]
 
     for name, node_func in registered_nodes.items():
-        if name in nodes_requiring_pipeline:
-            # Wrap node to ensure pipeline is initialized and passed
-            graph.add_node(name, partial(run_with_pipeline, node_func))
-        else:
+        # Nodes that don't need the full pipeline can be added directly
+        if name not in nodes_with_pipeline:
             graph.add_node(name, node_func)
+        else:
+            # Wrap nodes that require the pipeline to ensure lazy initialization
+            wrapped_node = partial(run_with_pipeline, node_func)
+            graph.add_node(name, wrapped_node)
 
     # Define graph topology
     entry_point = "input_normalizer"
@@ -267,30 +291,39 @@ def _build_graph_from_nodes(graph_type: str, config: PipelineConfig) -> StateGra
     graph.add_edge("generator", "post_processor")
 
     # Conditional RAGAS path
-    if config.enable_automatic_evaluation:
+    if settings.enable_automatic_evaluation:
         graph.add_edge("post_processor", "ragas_evaluator")
         graph.add_edge("ragas_evaluator", END)
     else:
         graph.add_edge("post_processor", END)
 
     logger.info(f"{graph_type.capitalize()} RAG graph built successfully")
-    return graph
+    return graph.compile()
 
+
+def build_basic_graph(settings: PipelineConfig, pipeline = None) -> StateGraph:
+    return build_graph("basic", settings)
+
+
+def build_streaming_graph(settings: PipelineConfig, pipeline = None) -> StreamingWrapper:
+    graph = build_graph("streaming", settings)
+    return StreamingWrapper(graph)
+
+
+# ==== SERVER ENTRYPOINTS ==== #
 
 def build_basic_graph_for_server(config: Optional[RunnableConfig] = None) -> StateGraph:
     """
     Entrypoint for LangGraph server to build the basic RAG graph.
-    The pipeline is initialized lazily on the first request.
+    The pipeline is not initialized here but on the first request.
     """
-    graph = _build_graph_from_nodes("basic", settings)
-    return graph.compile()
+    return build_graph("basic", settings)
 
 
 def build_streaming_graph_for_server(config: Optional[RunnableConfig] = None) -> StreamingWrapper:
     """
     Entrypoint for LangGraph server to build the streaming RAG graph.
-    The pipeline is initialized lazily on the first request.
+    The pipeline is not initialized here but on the first request.
     """
-    graph = _build_graph_from_nodes("streaming", settings)
-    compiled_graph = graph.compile()
-    return StreamingWrapper(compiled_graph)
+    graph = build_graph("streaming", settings)
+    return StreamingWrapper(graph)

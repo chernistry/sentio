@@ -46,6 +46,7 @@ from .retrievers import HybridRetriever
 # adapter-based orchestration layer (see ``core.rerank``).
 from .plugin_manager import PluginManager
 from .llm.prompt_builder import PromptBuilder
+from root.src.utils.settings import settings
 
 logger = logging.getLogger(__name__)
 TEXT_VECTOR_NAME: str = os.getenv("QDRANT_VECTOR_NAME", "text-dense")
@@ -277,17 +278,18 @@ class SentioRAGPipeline:
             self.embed_model = EmbeddingModel(
                 provider=settings.embedding_provider,
                 model_name=settings.embedding_model,
-                cache_enabled=settings.use_cache,
+                cache_enabled=self.config.cache_enabled,
                 batch_size=settings.embedding_batch_size,
-                allow_empty_api_key=not settings.is_production,  # Allow in dev
+                max_retries=self.config.max_retries,
+                allow_empty_api_key=True,
             )
-            logger.info(f"✓ Embedding model loaded: {self.embed_model}")
+            logger.info('✓ Embedding model ready')
 
             logger.info('Initializing text chunker...')
-            self.chunker = TextChunker(
+            self.chunker = await TextChunker.create(
                 chunk_size=self.config.chunk_size,
                 chunk_overlap=self.config.chunk_overlap,
-                strategy=self.config.chunking_strategy
+                strategy=self.config.chunking_strategy,
             )
             logger.info('✓ Text chunker ready')
 
@@ -325,8 +327,18 @@ class SentioRAGPipeline:
     async def _setup_vector_store(self) -> None:
         """Set up Qdrant client and vector store."""
         qdrant_url = os.getenv('QDRANT_URL', 'http://localhost:6333')
+        qdrant_api_key = os.getenv('QDRANT_API_KEY')
+        qdrant_api_key_header = os.getenv('QDRANT_API_KEY_HEADER', 'api-key')
         try:
-            self.qdrant_client = QdrantClient(url=qdrant_url)
+            client_kwargs: Dict[str, Any] = {
+                'url': qdrant_url,
+            }
+            if qdrant_api_key:
+                client_kwargs['api_key'] = qdrant_api_key
+                if qdrant_api_key_header.lower() != 'api-key':
+                    client_kwargs['api_key_header'] = qdrant_api_key_header
+            client_kwargs['prefer_grpc'] = False
+            self.qdrant_client = QdrantClient(**client_kwargs)
             collections = self.qdrant_client.get_collections()
             logger.debug(f'Connected to Qdrant with {len(collections.collections)} collections')
             TEXT_VECTOR_NAME: str = os.getenv("QDRANT_VECTOR_NAME", "text-dense")
@@ -355,8 +367,8 @@ class SentioRAGPipeline:
                     storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
                     self.index = VectorStoreIndex.from_vector_store(
                         self.vector_store,
-                        embed_model=self.embed_model._model,
-                        storage_context=storage_context
+                        embed_model=self.embed_model,
+                        storage_context=storage_context,
                     )
                     return
             if self.config.data_dir and self.config.data_dir.exists():
@@ -368,7 +380,7 @@ class SentioRAGPipeline:
                 self.index = VectorStoreIndex(
                     [],
                     storage_context=storage_context,
-                    embed_model=self.embed_model._model
+                    embed_model=self.embed_model,
                 )
         except Exception as e:
             raise PipelineError(f'Index setup failed: {e}')
@@ -388,7 +400,7 @@ class SentioRAGPipeline:
             self.index = VectorStoreIndex(
                 nodes,
                 storage_context=storage_context,
-                embed_model=self.embed_model._model,
+                embed_model=self.embed_model,
                 show_progress=True
             )
             logger.info('✓ Index built successfully')
