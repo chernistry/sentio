@@ -36,8 +36,38 @@ HYDE_ENABLED = os.environ.get("ENABLE_HYDE", "0") == "1"
 # Initialize plugin manager
 plugin_manager = PluginManager()
 
-# Global pipeline instance to avoid re-initialization
+# Global pipeline instance and lock for thread-safe initialization
 _pipeline_instance: Optional[SentioRAGPipeline] = None
+_init_lock = asyncio.Lock()
+
+
+async def get_pipeline() -> SentioRAGPipeline:
+    """
+    Get a singleton, initialized SentioRAGPipeline instance.
+    This function ensures that the pipeline is initialized asynchronously
+    and only once, handling concurrent access safely.
+    """
+    global _pipeline_instance
+    if not (_pipeline_instance and _pipeline_instance.initialized):
+        async with _init_lock:
+            # Double-check inside the lock
+            if not (_pipeline_instance and _pipeline_instance.initialized):
+                logger.info("Initializing RAG pipeline for LangGraph server...")
+                # Create instance if it doesn't exist or is not initialized
+                if _pipeline_instance is None:
+                    _pipeline_instance = SentioRAGPipeline()
+                
+                await _pipeline_instance.initialize()
+                logger.info("RAG pipeline initialized successfully.")
+    return _pipeline_instance
+
+
+async def run_with_pipeline(node_func: Callable, state: "RAGState") -> "RAGState":
+    """
+    Wrapper that ensures the pipeline is initialized before executing a graph node.
+    """
+    pipeline = await get_pipeline()
+    return await node_func(state, pipeline=pipeline)
 
 
 # ==== STATE DEFINITIONS ==== #
@@ -80,7 +110,7 @@ def input_normalizer_node(state: RAGState) -> RAGState:
     return state
 
 
-async def retriever_node(state: RAGState, *, pipeline) -> RAGState:
+async def retriever_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAGState:
     """
     Retrieve relevant documents for the query.
     
@@ -104,7 +134,7 @@ async def retriever_node(state: RAGState, *, pipeline) -> RAGState:
     return state
 
 
-async def reranker_node(state: RAGState, *, pipeline) -> RAGState:
+async def reranker_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAGState:
     """
     Rerank retrieved documents.
     
@@ -128,7 +158,7 @@ async def reranker_node(state: RAGState, *, pipeline) -> RAGState:
     return state
 
 
-async def generator_node(state: RAGState, *, pipeline) -> RAGState:
+async def generator_node(state: RAGState, *, pipeline: SentioRAGPipeline) -> RAGState:
     """
     Generate an answer based on the query and context.
     
@@ -205,226 +235,62 @@ register_builtin_nodes()
 
 # ==== GRAPH FACTORY ==== #
 
-def build_basic_graph(settings: PipelineConfig, pipeline = None) -> StateGraph:
-    """
-    Build a basic linear RAG graph.
-    
-    This factory method constructs a simple linear LangGraph that replicates
-    the existing Pipeline functionality.
-    
-    Args:
-        settings: Pipeline configuration.
-        pipeline: Optional existing pipeline instance for component reuse.
-        
-    Returns:
-        StateGraph: Configured LangGraph.
-    """
-    # Create the graph with the defined state schema
+def _build_graph_from_nodes(graph_type: str, settings: PipelineConfig) -> StateGraph:
+    """A unified factory to construct a graph from registered nodes."""
     graph = StateGraph(RAGState)
-    
-    # Get all registered nodes for the basic graph type
-    registered_nodes = plugin_manager.get_graph_nodes("basic")
-    
-    # Add all nodes to the graph
-    graph.add_node("input_normalizer", registered_nodes["input_normalizer"])
-    
-    # Add HyDE expansion node if enabled
-    if HYDE_ENABLED and pipeline is not None:
-        logger.info("Adding HyDE expansion node to the graph")
-        node_func = registered_nodes["hyde_expander"]
-        graph.add_node("hyde_expander", partial(node_func, pipeline=pipeline))
-    
-    node_func = registered_nodes["retriever"]
-    graph.add_node("retriever", partial(node_func, pipeline=pipeline))
-    
-    node_func = registered_nodes["reranker"]
-    graph.add_node("reranker", partial(node_func, pipeline=pipeline))
+    registered_nodes = plugin_manager.get_graph_nodes(graph_type)
 
-    node_func = registered_nodes["generator"]
-    graph.add_node("generator", partial(node_func, pipeline=pipeline))
+    nodes_requiring_pipeline = {
+        "retriever", "reranker", "generator", "hyde_expander", "ragas_evaluator"
+    }
 
-    graph.add_node("post_processor", registered_nodes["post_processor"])
-    
-    # Add RAGAS evaluation node if automatic evaluation is enabled
-    if settings.enable_automatic_evaluation and pipeline is not None:
-        logger.info("Adding RAGAS evaluation node to the graph")
-        node_func = registered_nodes["ragas_evaluator"]
-        graph.add_node("ragas_evaluator", partial(node_func, pipeline=pipeline))
-    
-    # Add custom nodes from plugins
-    for node_name, node_func in registered_nodes.items():
-        if node_name not in [
-            "input_normalizer", "retriever", "reranker", 
-            "generator", "post_processor", "hyde_expander", 
-            "ragas_evaluator"
-        ]:
-            logger.info(f"Adding custom node {node_name} to the graph")
-            sig = inspect.signature(node_func)
-            if 'pipeline' in sig.parameters:
-                graph.add_node(node_name, partial(node_func, pipeline=pipeline))
-            else:
-                graph.add_node(node_name, node_func)
+    for name, node_func in registered_nodes.items():
+        if name in nodes_requiring_pipeline:
+            # Wrap node to ensure pipeline is initialized and passed
+            graph.add_node(name, partial(run_with_pipeline, node_func))
+        else:
+            graph.add_node(name, node_func)
 
-    # Define the edges in the graph
-    graph.add_edge("input_normalizer", "hyde_expander" if HYDE_ENABLED and pipeline is not None else "retriever")
-    
-    # Add HyDE edge if enabled
-    if HYDE_ENABLED and pipeline is not None:
+    # Define graph topology
+    entry_point = "input_normalizer"
+    graph.set_entry_point(entry_point)
+
+    # Conditional HyDE path
+    if HYDE_ENABLED:
+        graph.add_edge("input_normalizer", "hyde_expander")
         graph.add_edge("hyde_expander", "retriever")
-    
+    else:
+        graph.add_edge("input_normalizer", "retriever")
+
     graph.add_edge("retriever", "reranker")
     graph.add_edge("reranker", "generator")
     graph.add_edge("generator", "post_processor")
-    
-    # Add RAGAS edge if enabled
-    if settings.enable_automatic_evaluation and pipeline is not None:
+
+    # Conditional RAGAS path
+    if settings.enable_automatic_evaluation:
         graph.add_edge("post_processor", "ragas_evaluator")
         graph.add_edge("ragas_evaluator", END)
     else:
         graph.add_edge("post_processor", END)
-    
-    # Set the entry point
-    graph.set_entry_point("input_normalizer")
-    
-    logger.info("RAG graph built successfully")
-    return graph.compile()
 
-
-def build_streaming_graph(settings: PipelineConfig, pipeline = None) -> StreamingWrapper:
-    """
-    Build a streaming-capable RAG graph.
-    
-    This factory method constructs a LangGraph that supports streaming responses,
-    with the generator node adapted for token-by-token streaming.
-    
-    Args:
-        settings: Pipeline configuration.
-        pipeline: Optional existing pipeline instance for component reuse.
-        
-    Returns:
-        StreamingWrapper: Wrapped graph with streaming capabilities.
-    """
-    # Create the graph with the defined state schema
-    graph = StateGraph(RAGState)
-    
-    # Get all registered nodes for the streaming graph type
-    registered_nodes = plugin_manager.get_graph_nodes("streaming")
-    
-    # Add all nodes to the graph
-    graph.add_node("input_normalizer", registered_nodes["input_normalizer"])
-    
-    # Add HyDE expansion node if enabled
-    if HYDE_ENABLED and pipeline is not None:
-        logger.info("Adding HyDE expansion node to the streaming graph")
-        node_func = registered_nodes["hyde_expander"]
-        graph.add_node("hyde_expander", partial(node_func, pipeline=pipeline))
-    
-    node_func = registered_nodes["retriever"]
-    graph.add_node("retriever", partial(node_func, pipeline=pipeline))
-
-    node_func = registered_nodes["reranker"]
-    graph.add_node("reranker", partial(node_func, pipeline=pipeline))
-    
-    # Use the streaming generator node
-    node_func = registered_nodes["generator"]
-    graph.add_node("generator", partial(node_func, pipeline=pipeline))
-    
-    graph.add_node("post_processor", registered_nodes["post_processor"])
-    
-    # Add RAGAS evaluation node if automatic evaluation is enabled
-    if settings.enable_automatic_evaluation and pipeline is not None:
-        logger.info("Adding RAGAS evaluation node to the streaming graph")
-        node_func = registered_nodes["ragas_evaluator"]
-        graph.add_node("ragas_evaluator", partial(node_func, pipeline=pipeline))
-    
-    # Add custom nodes from plugins
-    for node_name, node_func in registered_nodes.items():
-        if node_name not in [
-            "input_normalizer", "retriever", "reranker", 
-            "generator", "post_processor", "hyde_expander", 
-            "ragas_evaluator"
-        ]:
-            logger.info(f"Adding custom node {node_name} to the streaming graph")
-            sig = inspect.signature(node_func)
-            if 'pipeline' in sig.parameters:
-                graph.add_node(node_name, partial(node_func, pipeline=pipeline))
-            else:
-                graph.add_node(node_name, node_func)
-    
-    # Define the edges in the graph
-    graph.add_edge("input_normalizer", "hyde_expander" if HYDE_ENABLED and pipeline is not None else "retriever")
-    
-    # Add HyDE edge if enabled
-    if HYDE_ENABLED and pipeline is not None:
-        graph.add_edge("hyde_expander", "retriever")
-    
-    graph.add_edge("retriever", "reranker")
-    graph.add_edge("reranker", "generator")
-    graph.add_edge("generator", "post_processor")
-    
-    # Add RAGAS edge if enabled
-    if settings.enable_automatic_evaluation and pipeline is not None:
-        graph.add_edge("post_processor", "ragas_evaluator")
-        graph.add_edge("ragas_evaluator", END)
-    else:
-        graph.add_edge("post_processor", END)
-    
-    # Set the entry point
-    graph.set_entry_point("input_normalizer")
-    
-    logger.info("Streaming RAG graph built successfully")
-    compiled_graph = graph.compile()
-    
-    # Wrap the graph with the streaming wrapper
-    return StreamingWrapper(compiled_graph)
-
-
-# ==== SERVER ENTRYPOINTS ==== #
-
-def _get_initialized_pipeline() -> SentioRAGPipeline:
-    """
-    Get a singleton, initialized SentioRAGPipeline instance.
-
-    This function handles the async initialization of the pipeline from
-    the synchronous context of the graph builder.
-    """
-    global _pipeline_instance
-    if _pipeline_instance is None:
-        pipeline = SentioRAGPipeline()
-        logger.info("Initializing RAG pipeline for LangGraph server...")
-        try:
-            # Get the running event loop from the async server context
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(pipeline.initialize())
-            else:
-                loop.run_until_complete(pipeline.initialize())
-        except RuntimeError:
-            # Fallback for environments without a running loop
-            logger.warning("No running asyncio event loop, using asyncio.run()")
-            asyncio.run(pipeline.initialize())
-        _pipeline_instance = pipeline
-        logger.info("RAG pipeline initialized successfully.")
-    return _pipeline_instance
+    logger.info(f"{graph_type.capitalize()} RAG graph built successfully")
+    return graph
 
 
 def build_basic_graph_for_server(config: Optional[RunnableConfig] = None) -> StateGraph:
     """
     Entrypoint for LangGraph server to build the basic RAG graph.
-    
-    This function initializes the pipeline and settings required by the
-    graph factory and is compatible with `langgraph dev`.
+    The pipeline is initialized lazily on the first request.
     """
-    pipeline_instance = _get_initialized_pipeline()
-    return build_basic_graph(settings, pipeline_instance)
+    graph = _build_graph_from_nodes("basic", settings)
+    return graph.compile()
 
 
 def build_streaming_graph_for_server(config: Optional[RunnableConfig] = None) -> StreamingWrapper:
     """
     Entrypoint for LangGraph server to build the streaming RAG graph.
-    
-    This function initializes the pipeline and settings required by the
-    graph factory and is compatible with `langgraph dev`.
+    The pipeline is initialized lazily on the first request.
     """
-    pipeline_instance = _get_initialized_pipeline()
-    return build_streaming_graph(settings, pipeline_instance)
+    graph = _build_graph_from_nodes("streaming", settings)
+    compiled_graph = graph.compile()
+    return StreamingWrapper(compiled_graph)

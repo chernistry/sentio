@@ -275,10 +275,13 @@ class SentioRAGPipeline:
             self.plugin_manager.load_from_env()
 
             self.embed_model = EmbeddingModel(
-                use_cache=self.config.cache_enabled,
-                max_retries=self.config.max_retries
+                provider=settings.embedding_provider,
+                model_name=settings.embedding_model,
+                cache_enabled=settings.use_cache,
+                batch_size=settings.embedding_batch_size,
+                allow_empty_api_key=not settings.is_production,  # Allow in dev
             )
-            logger.info('✓ Embedding model ready')
+            logger.info(f"✓ Embedding model loaded: {self.embed_model}")
 
             logger.info('Initializing text chunker...')
             self.chunker = TextChunker(
