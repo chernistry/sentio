@@ -1,4 +1,6 @@
 # Core dependencies for the main application
+langgraph  # LangGraph for LLM pipeline backbone
+langchain  # Updated LangChain version
 aiohttp
 fastapi
 httpx

@@ -1,0 +1,77 @@
+....................................................                     [100%]
+=============================== warnings summary ===============================
+../../../../../opt/homebrew/lib/python3.11/site-packages/pydantic/fields.py:1093: 38 warnings
+  /opt/homebrew/lib/python3.11/site-packages/pydantic/fields.py:1093: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'env'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.11.12-final-0 _______________
+
+Name                                               Stmts   Miss  Cover
+----------------------------------------------------------------------
+__init__.py                                           68     59    13%
+app.py                                               617    387    37%
+cli/__init__.py                                        0      0   100%
+cli/scripts/__init__.py                                0      0   100%
+cli/scripts/build_index.py                            89     89     0%
+cli/sentio_cli.py                                    245    245     0%
+src/__init__.py                                        1      0   100%
+src/core/__init__.py                                   3      0   100%
+src/core/embeddings/__init__.py                        1      0   100%
+src/core/embeddings/embeddings_adapter.py             58     41    29%
+src/core/embeddings/providers/beam_embeddings.py     365    274    25%
+src/core/llm/chat_adapter.py                         107     75    30%
+src/core/llm/prompt_builder.py                        38      7    82%
+src/core/pipeline.py                                 386    112    71%
+src/core/plugin_manager.py                           118     55    53%
+src/core/rerankers/__init__.py                         8      0   100%
+src/core/rerankers/providers/cross_encoder.py         55      4    93%
+src/core/rerankers/providers/jina_reranker.py         52      3    94%
+src/core/rerankers/rerank_adapter.py                  22     11    50%
+src/core/retrievers/__init__.py                        1      0   100%
+src/core/retrievers/hybrid.py                         97     19    80%
+src/core/retrievers/sparse.py                        103     35    66%
+src/core/tasks/__init__.py                            16      6    62%
+src/core/tasks/chunking.py                           255     31    88%
+src/core/tasks/embeddings.py                         309    309     0%
+src/core/tasks/ingest.py                             327    281    14%
+src/core/tasks/rerank.py                              11      2    82%
+src/integrations/beam/__init__.py                      3      0   100%
+src/integrations/beam/ai_model.py                     81     60    26%
+src/integrations/beam/runtime.py                      46     22    52%
+src/main.py                                           77     77     0%
+src/utils/docker_wrapper.py                           42     28    33%
+src/utils/settings.py                                 63      7    89%
+streamlit_app.py                                     211    211     0%
+tests/__init__.py                                      0      0   100%
+tests/conftest.py                                    258     74    71%
+tests/locustfile.py                                   47     47     0%
+tests/test_additional_coverage.py                    112      6    95%
+tests/test_api_endpoints.py                           45      0   100%
+tests/test_chunker.py                                 24      0   100%
+tests/test_chunking_strategies.py                     32      0   100%
+tests/test_embedding_cache.py                         20      0   100%
+tests/test_embeddings.py                             182     47    74%
+tests/test_embeddings_retry.py                         1      0   100%
+tests/test_hybrid_sparse.py                           44      5    89%
+tests/test_import_paths.py                            28      4    86%
+tests/test_pipeline_deep2.py                          66      4    94%
+tests/test_pipeline_deep.py                           27      0   100%
+tests/test_pipeline_extended.py                       78      4    95%
+tests/test_pipeline_flow.py                           33      2    94%
+tests/test_pipeline_helpers.py                         9      0   100%
+tests/test_pipeline_init.py                           40      0   100%
+tests/test_pipeline_query.py                          21      0   100%
+tests/test_pipeline_utils.py                          48      0   100%
+tests/test_plugin_manager.py                          47      0   100%
+tests/test_qdrant_store.py                            43      0   100%
+tests/test_rag_pipeline.py                            35      1    97%
+tests/test_rerankers.py                               57      0   100%
+tests/test_text_chunker_split.py                      18      0   100%
+worker.py                                             77     77     0%
+worker/__init__.py                                     0      0   100%
+worker/__main__.py                                    25     25     0%
+----------------------------------------------------------------------
+TOTAL                                               5292   2746    48%
+52 passed, 38 warnings in 4.28s
