@@ -24,12 +24,15 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip-compile requirements.txt --output-file requirements.compiled.txt && \
     pip install --no-cache-dir --user -r requirements.compiled.txt
 
-# Add common Python packages
+# Add common Python packages including LangGraph
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir --user \
     click \
     python-dotenv \
-    uvicorn
+    uvicorn \
+    langgraph>=0.5.3 \
+    langgraph-api>=0.2.86 \
+    aiofiles>=23.2.1
 
 # Final base image with just the installed packages
 FROM python:3.11-slim AS base

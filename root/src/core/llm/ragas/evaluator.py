@@ -13,6 +13,7 @@ import json
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import asyncio
+import aiofiles  # Добавляем импорт aiofiles
 
 from root.src.core.llm.chat_adapter import chat_completion
 from root.src.utils.settings import settings
@@ -110,7 +111,7 @@ class RAGEvaluator:
 
     async def _init_async(self) -> None:
         """Asynchronously initialize the evaluator."""
-        self.ragas_prompt = self._load_ragas_prompt()
+        self.ragas_prompt = await self._load_ragas_prompt()
 
         if HAS_RAGAS:
             self.metrics = {
@@ -126,13 +127,15 @@ class RAGEvaluator:
             logging.getLogger(__name__).warning(
                 "No evaluation method available (RAGAS + LLM judge disabled)"
             )
-    
-    def _load_ragas_prompt(self) -> str:
-        """Load RAGAS prompt template from file."""
+
+    async def _load_ragas_prompt(self) -> str:
+        """Load RAGAS prompt template from file asynchronously."""
         try:
-            with open(self.ragas_prompt_path, "r") as f:
-                return f.read().strip()
-        except (FileNotFoundError, IOError):
+            # Используем asyncio.to_thread для неблокирующего чтения файла
+            async with aiofiles.open(self.ragas_prompt_path, "r") as f:
+                return await f.read()
+        except (FileNotFoundError, IOError, ImportError):
+            # Если aiofiles не установлен или возникла другая ошибка
             logger.warning(f"RAGAS prompt file not found at {self.ragas_prompt_path}, using default prompt")
             return """
             You are an expert evaluator of Retrieval-Augmented Generation (RAG) answers.

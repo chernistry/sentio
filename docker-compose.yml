@@ -32,6 +32,10 @@ services:
       - BEAM_MODE=${BEAM_MODE:-local}
       - SENTIO_PLUGINS=ragas_eval
       - LOG_LEVEL=debug
+      - USE_LANGGRAPH=${USE_LANGGRAPH:-1}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-true}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-sense-rag}
       # BEAM_* variables passed via env_file (.env)
     ports: ["8000:8000"]
 
@@ -53,6 +57,7 @@ services:
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
       - BEAM_EMBEDDING_BASE_URL=${BEAM_EMBEDDING_BASE_URL}
       - BEAM_MODE=${BEAM_MODE:-local}
+      - USE_LANGGRAPH=${USE_LANGGRAPH:-1}
       # BEAM_* variables passed via env_file (.env)
     env_file:
       - .env
@@ -69,6 +74,35 @@ services:
       - SENTIO_BACKEND_URL=http://api:8000
     ports: ["8501:8501"]
     depends_on: ["api"]
+
+  langgraph-server:
+    build:
+      context: .
+      dockerfile: root/devops/Dockerfile.api
+      args:
+        PYTHON_GPG: off
+        BUILDKIT_INLINE_CACHE: "1"
+        APT_OPTIONS: "Acquire::Retries=3"
+    env_file:
+      - .env
+    environment:
+      - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDING_MODEL_API_KEY=${EMBEDDING_MODEL_API_KEY}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_API_KEY_HEADER=api-key
+      - USE_AZURE=${USE_AZURE}
+      - CHAT_LLM_API_KEY=${CHAT_LLM_API_KEY}
+      - CHAT_LLM_BASE_URL=${CHAT_LLM_BASE_URL}
+      - CHAT_LLM_MODEL=${CHAT_LLM_MODEL}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-beam}
+      - BEAM_MODE=${BEAM_MODE:-local}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-true}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-sense-rag}
+      - BG_JOB_ISOLATED_LOOPS=true
+    ports: ["2024:2024"]
+    command: ["python", "scripts/langgraph_server.py"]
 
   ingest:
     build:

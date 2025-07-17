@@ -235,7 +235,7 @@ register_builtin_nodes()
 
 # ==== GRAPH FACTORY ==== #
 
-def _build_graph_from_nodes(graph_type: str, settings: PipelineConfig) -> StateGraph:
+def _build_graph_from_nodes(graph_type: str, config: PipelineConfig) -> StateGraph:
     """A unified factory to construct a graph from registered nodes."""
     graph = StateGraph(RAGState)
     registered_nodes = plugin_manager.get_graph_nodes(graph_type)
@@ -267,7 +267,7 @@ def _build_graph_from_nodes(graph_type: str, settings: PipelineConfig) -> StateG
     graph.add_edge("generator", "post_processor")
 
     # Conditional RAGAS path
-    if settings.enable_automatic_evaluation:
+    if config.enable_automatic_evaluation:
         graph.add_edge("post_processor", "ragas_evaluator")
         graph.add_edge("ragas_evaluator", END)
     else:

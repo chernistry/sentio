@@ -46,7 +46,7 @@ def main():
     try:
         # Use subprocess to run the langgraph dev command
         process = subprocess.run(
-            ["langgraph", "dev"],
+            ["langgraph", "dev", "--allow-blocking"],
             check=True,
         )
         return process.returncode
