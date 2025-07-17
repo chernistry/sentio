@@ -13,6 +13,7 @@ import os
 from typing import Any, Dict, List, Optional, Callable
 import inspect
 from functools import partial
+import asyncio
 
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
@@ -34,6 +35,9 @@ HYDE_ENABLED = os.environ.get("ENABLE_HYDE", "0") == "1"
 
 # Initialize plugin manager
 plugin_manager = PluginManager()
+
+# Global pipeline instance to avoid re-initialization
+_pipeline_instance: Optional[SentioRAGPipeline] = None
 
 
 # ==== STATE DEFINITIONS ==== #
@@ -377,6 +381,33 @@ def build_streaming_graph(settings: PipelineConfig, pipeline = None) -> Streamin
 
 # ==== SERVER ENTRYPOINTS ==== #
 
+def _get_initialized_pipeline() -> SentioRAGPipeline:
+    """
+    Get a singleton, initialized SentioRAGPipeline instance.
+
+    This function handles the async initialization of the pipeline from
+    the synchronous context of the graph builder.
+    """
+    global _pipeline_instance
+    if _pipeline_instance is None:
+        pipeline = SentioRAGPipeline()
+        logger.info("Initializing RAG pipeline for LangGraph server...")
+        try:
+            # Get the running event loop from the async server context
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(pipeline.initialize())
+            else:
+                loop.run_until_complete(pipeline.initialize())
+        except RuntimeError:
+            # Fallback for environments without a running loop
+            logger.warning("No running asyncio event loop, using asyncio.run()")
+            asyncio.run(pipeline.initialize())
+        _pipeline_instance = pipeline
+        logger.info("RAG pipeline initialized successfully.")
+    return _pipeline_instance
+
+
 def build_basic_graph_for_server(config: Optional[RunnableConfig] = None) -> StateGraph:
     """
     Entrypoint for LangGraph server to build the basic RAG graph.
@@ -384,7 +415,7 @@ def build_basic_graph_for_server(config: Optional[RunnableConfig] = None) -> Sta
     This function initializes the pipeline and settings required by the
     graph factory and is compatible with `langgraph dev`.
     """
-    pipeline_instance = SentioRAGPipeline()
+    pipeline_instance = _get_initialized_pipeline()
     return build_basic_graph(settings, pipeline_instance)
 
 
@@ -395,5 +426,5 @@ def build_streaming_graph_for_server(config: Optional[RunnableConfig] = None) ->
     This function initializes the pipeline and settings required by the
     graph factory and is compatible with `langgraph dev`.
     """
-    pipeline_instance = SentioRAGPipeline()
-    return build_streaming_graph(settings, pipeline_instance) 
+    pipeline_instance = _get_initialized_pipeline()
+    return build_streaming_graph(settings, pipeline_instance)

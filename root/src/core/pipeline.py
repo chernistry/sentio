@@ -267,26 +267,15 @@ class SentioRAGPipeline:
 
 
     async def initialize(self) -> None:
-        """Initialize all pipeline components asynchronously."""
-        if self.initialized:
-            logger.warning('Pipeline already initialized')
-            return
-
+        """Initialize the pipeline components."""
         logger.info("🚀 Initializing Sentio RAG Pipeline...")
 
-        # Auto-discover plugins dropped into the plugins/ directory for
-        # zero-touch integration.  Env variable loading still overrides.
         try:
-            self.plugin_manager.load_all()
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Plugin auto-discovery failed: %s", exc)
+            # Load plugins before initializing other components
+            self.plugin_manager.load_from_env()
 
-        self.plugin_manager.load_from_env()
-
-        try:
-            logger.info('Initializing embedding model...')
             self.embed_model = EmbeddingModel(
-                cache_enabled=self.config.cache_enabled,
+                use_cache=self.config.cache_enabled,
                 max_retries=self.config.max_retries
             )
             logger.info('✓ Embedding model ready')

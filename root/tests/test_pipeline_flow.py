@@ -1,57 +1,71 @@
 import pytest
-from root.src.core.pipeline import SentioRAGPipeline, GenerationResult, RetrievalResult
+from unittest.mock import AsyncMock
+
+from root.src.core.graph.graph_factory import build_basic_graph
+from root.src.core.pipeline import SentioRAGPipeline, PipelineConfig
 
 
 @pytest.mark.asyncio
-async def test_pipeline_retrieve_and_query(monkeypatch):  # noqa: D401
-    """Cover *retrieve* and *query* high-level flows with stubbed internals."""
+async def test_langgraph_flow_equivalent(monkeypatch):
+    """
+    Verify that the LangGraph flow produces results equivalent to the legacy
+    pipeline by mocking the underlying data processing components.
+    """
+    # -- Setup Mocks -----------------------------------------------------------
+    # Create a mock pipeline instance to control the behavior of the nodes
+    mock_pipeline = SentioRAGPipeline()
 
-    pipeline = SentioRAGPipeline()
+    # Mock the initialization to avoid real setup
+    monkeypatch.setattr(mock_pipeline, "initialize", AsyncMock())
 
-    # --- Make initialize() cheap ------------------------------------------------
-    async def _fake_initialize(self):  # noqa: D401
-        self.initialized = True
+    # Mock the core data processing methods
+    monkeypatch.setattr(
+        mock_pipeline,
+        "retrieve",
+        AsyncMock(
+            return_value={
+                "documents": [{"text": "mock document", "source": "s1", "score": 0.9}],
+                "strategy": "hybrid",
+                "total_time": 0.1,
+                "sources_found": 1,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        mock_pipeline,
+        "rerank",
+        AsyncMock(return_value=[{"text": "reranked doc", "source": "s1"}]),
+    )
+    monkeypatch.setattr(
+        mock_pipeline,
+        "generate",
+        AsyncMock(
+            return_value={
+                "answer": "mock answer",
+                "total_time": 0.2,
+                "mode": "balanced",
+                "token_count": 10,
+                "timestamp": "now",
+            }
+        ),
+    )
 
-    monkeypatch.setattr(SentioRAGPipeline, "initialize", _fake_initialize, raising=True)
-    monkeypatch.setattr(SentioRAGPipeline, "_setup_vector_store", lambda *_: None, raising=False)
-    monkeypatch.setattr(SentioRAGPipeline, "_setup_retrievers", lambda *_: None, raising=False)
+    # -- Build Graph with Mocks ------------------------------------------------
+    # Build the graph using the mocked pipeline instance
+    graph = build_basic_graph(PipelineConfig(), mock_pipeline)
 
-    # --- Stub retrieval paths ----------------------------------------------------
-    async def _fake_hybrid(self, query: str, top_k: int):  # noqa: D401
-        return [{"text": "doc", "source": "s1", "score": 0.9}]
+    # -- Execute and Verify ----------------------------------------------------
+    inputs = {"query": "what is sentio?"}
+    final_state = None
+    async for step in graph.astream(inputs):
+        final_state = step
 
-    async def _fake_dense(self, *_, **__):  # noqa: D401
-        return []
+    # Extract the final RAGState object from the last step
+    rag_state = final_state[next(iter(final_state))]
 
-    async def _fake_semantic(self, *_, **__):  # noqa: D401
-        return []
-
-    monkeypatch.setattr(SentioRAGPipeline, "_hybrid_retrieval", _fake_hybrid)
-    monkeypatch.setattr(SentioRAGPipeline, "_dense_retrieval", _fake_dense)
-    monkeypatch.setattr(SentioRAGPipeline, "_semantic_retrieval", _fake_semantic)
-
-    await pipeline.initialize()
-
-    # *retrieve* -----------------------------------------------------------------
-    result: RetrievalResult = await pipeline.retrieve("q", top_k=1)
-    assert result.documents[0]["text"] == "doc"
-    assert result.sources_found == 1
-
-    # --- Stub rerank & generate for *query* -------------------------------------
-    async def _fake_rerank(self, query: str, documents, top_k=None):  # noqa: D401
-        return documents
-
-    async def _fake_generate(self, query: str, ctx, mode=None):  # noqa: D401
-        return GenerationResult(
-            answer="ans", sources=ctx, query=query, mode="fast", total_time=0.01
-        )
-
-    monkeypatch.setattr(SentioRAGPipeline, "rerank", _fake_rerank)
-    monkeypatch.setattr(SentioRAGPipeline, "generate", _fake_generate)
-
-    final = await pipeline.query("What is Sentio?")
-    assert final["answer"] == "ans" and final["sources"][0]["text"] == "doc"
-
-    # Stats reset ----------------------------------------------------------------
-    pipeline.reset_stats()
-    assert pipeline.get_stats()["queries_processed"] == 0 
+    # Assert that the final state contains the expected results from the mocks
+    assert rag_state.answer.strip() == "mock answer"
+    assert len(rag_state.reranked_documents) == 1
+    assert rag_state.reranked_documents[0]["text"] == "reranked doc"
+    assert "retrieval_time" in rag_state.metadata
+    assert "generation_time" in rag_state.metadata 

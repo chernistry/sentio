@@ -5,6 +5,7 @@ Advanced text chunking with multiple strategies and optimization.
 
 import logging
 import re
+import asyncio
 
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -74,24 +75,44 @@ class SentenceChunker(BaseChunker):
 
     def __init__(
         self,
-        chunk_size: int = 512,
-        chunk_overlap: int = 64
+        splitter: SentenceSplitter
     ) -> None:
         """
-        Initialize SentenceChunker.
+        Initialize SentenceChunker with a pre-configured splitter.
+        
+        Args:
+            splitter: An initialized SentenceSplitter instance.
+        """
+        self.splitter = splitter
+
+    @classmethod
+    async def create(
+        cls,
+        chunk_size: int = 512,
+        chunk_overlap: int = 64
+    ) -> "SentenceChunker":
+        """
+        Asynchronously create a SentenceChunker instance.
+
+        This method handles the potentially blocking initialization of the
+        tokenizer in an async-friendly way.
 
         Args:
             chunk_size: Maximum tokens per chunk.
             chunk_overlap: Overlap tokens between chunks.
+
+        Returns:
+            A new instance of SentenceChunker.
         """
-        self.splitter = SentenceSplitter(
+        splitter = await asyncio.to_thread(
+            SentenceSplitter,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             separator=" ",
             paragraph_separator="\n\n\n",
-            chunking_tokenizer_fn=self._smart_tokenizer,
+            chunking_tokenizer_fn=cls._smart_tokenizer,
         )
-
+        return cls(splitter)
 
     @staticmethod
     @lru_cache(maxsize=1024)
@@ -446,74 +467,82 @@ class ParagraphChunker(BaseChunker):
 
 class TextChunker:
     """
-    Orchestrates text chunking using multiple strategies with validation.
-
-    Attributes:
-        chunk_size: Target size for each chunk.
-        chunk_overlap: Overlap size between chunks.
-        strategy: Default chunking strategy.
-        min_chunk_size: Minimum acceptable chunk size.
-        max_chunk_size: Maximum acceptable chunk size.
-        preserve_code_blocks: Preserve code block segments.
-        preserve_tables: Preserve table segments.
+    Facade for various text chunking strategies.
+    
+    This class orchestrates the chunking process, including text preprocessing,
+    strategy selection, and post-processing validation. It is the primary
+    entry point for chunking text content.
     """
+    __slots__: Tuple = (
+        "chunk_size", "chunk_overlap", "strategy",
+        "min_chunk_size", "max_chunk_size",
+        "preserve_code_blocks", "preserve_tables",
+        "_chunkers", "_stats", "_code_placeholder_pattern",
+        "_table_placeholder_pattern"
+    )
+
     def __init__(
         self,
+        chunkers: Dict[ChunkingStrategy, BaseChunker],
+        chunk_size: int,
+        chunk_overlap: int,
+        strategy: ChunkingStrategy,
+        min_chunk_size: int,
+        max_chunk_size: Optional[int],
+        preserve_code_blocks: bool,
+        preserve_tables: bool,
+    ) -> None:
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.strategy = strategy
+        self.min_chunk_size = min_chunk_size
+        self.max_chunk_size = max_chunk_size
+        self.preserve_code_blocks = preserve_code_blocks
+        self.preserve_tables = preserve_tables
+        
+        self._chunkers = chunkers
+        self._stats: Dict[str, Any] = {"chunks_created": 0, "errors": 0}
+        
+        self._code_placeholder_pattern = re.compile(r"(__CODE_BLOCK_\d+__)")
+        self._table_placeholder_pattern = re.compile(r"(__TABLE_\d+__)")
+
+    @classmethod
+    async def create(
+        cls,
         chunk_size: int = 512,
         chunk_overlap: int = 64,
         strategy: ChunkingStrategy = ChunkingStrategy.SENTENCE,
         min_chunk_size: int = 50,
         max_chunk_size: Optional[int] = None,
         preserve_code_blocks: bool = True,
-        preserve_tables: bool = True
-    ) -> None:
+        preserve_tables: bool = True,
+    ) -> "TextChunker":
         """
-        Initialize TextChunker with configuration settings.
+        Asynchronously create a TextChunker instance.
 
-        Args:
-            chunk_size: Target chunk size.
-            chunk_overlap: Overlap size.
-            strategy: Default chunking strategy.
-            min_chunk_size: Minimum size threshold.
-            max_chunk_size: Maximum size threshold.
-            preserve_code_blocks: Flag to preserve code blocks.
-            preserve_tables: Flag to preserve table structures.
+        This factory method ensures that all underlying chunker strategies
+        are initialized in a non-blocking way.
         """
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        self.strategy = strategy
-        self.min_chunk_size = min_chunk_size
-        self.max_chunk_size = max_chunk_size or (chunk_size * 2)
-        self.preserve_code_blocks = preserve_code_blocks
-        self.preserve_tables = preserve_tables
-
-        self.chunkers: Dict[ChunkingStrategy, BaseChunker] = {
-            ChunkingStrategy.SENTENCE: SentenceChunker(
-                chunk_size, chunk_overlap
-            ),
-            ChunkingStrategy.SEMANTIC: SemanticChunker(
-                chunk_size, chunk_overlap
-            ),
-            ChunkingStrategy.FIXED: FixedChunker(
-                chunk_size, chunk_overlap
-            ),
-            ChunkingStrategy.PARAGRAPH: ParagraphChunker(
-                chunk_size, chunk_overlap
-            ),
+        sentence_chunker = await SentenceChunker.create(chunk_size, chunk_overlap)
+        
+        chunkers = {
+            ChunkingStrategy.SENTENCE: sentence_chunker,
+            ChunkingStrategy.SEMANTIC: SemanticChunker(chunk_size, chunk_overlap),
+            ChunkingStrategy.FIXED: FixedChunker(chunk_size, chunk_overlap),
+            ChunkingStrategy.PARAGRAPH: ParagraphChunker(chunk_size, chunk_overlap),
         }
+        chunkers[ChunkingStrategy.HYBRID] = chunkers[strategy]
 
-        self.stats: Dict[str, Any] = {
-            "documents_processed": 0,
-            "total_chunks": 0,
-            "avg_chunk_size": 0.0,
-            "strategy_usage": {
-                strat.value: 0 for strat in ChunkingStrategy
-            },
-        }
-
-        logger.info(f"TextChunker initialized with strategy: "
-                    f"{strategy.value}")
-
+        return cls(
+            chunkers=chunkers,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            strategy=strategy,
+            min_chunk_size=min_chunk_size,
+            max_chunk_size=max_chunk_size,
+            preserve_code_blocks=preserve_code_blocks,
+            preserve_tables=preserve_tables,
+        )
 
     def _preprocess_text(
         self,
@@ -695,13 +724,13 @@ class TextChunker:
                 text, regions = self._preprocess_text(doc.text)
 
                 strategy = self._select_strategy(text, doc.metadata)
-                chunker = self.chunkers[strategy]
+                chunker = self._chunkers[strategy]
 
                 nodes = chunker.chunk_text(text, doc.metadata)
                 valid_nodes = self._validate_chunks(nodes)
 
-                self.stats["strategy_usage"][strategy.value] += 1
-                self.stats["total_chunks"] += len(valid_nodes)
+                self._stats["strategy_usage"][strategy.value] += 1
+                self._stats["total_chunks"] += len(valid_nodes)
 
                 for node in valid_nodes:
                     node.metadata = node.metadata or {}

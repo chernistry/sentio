@@ -12,6 +12,8 @@ import re
 import json
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
+import asyncio
+import aiofiles
 
 from root.src.core.llm.chat_adapter import chat_completion
 from root.src.utils.settings import settings
@@ -90,11 +92,20 @@ class RAGEvaluator:
         
         # Load RAGAS prompt template
         self.ragas_prompt_path = settings.ragas_prompt
-        self.ragas_prompt = self._load_ragas_prompt()
+        self.ragas_prompt: Optional[str] = None
         
         # Get RAGAS model from settings
         self.ragas_model = settings.ragas_model
 
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_until_complete(self._init_async())
+        except RuntimeError:
+            asyncio.run(self._init_async())
+
+    async def _init_async(self) -> None:
+        """Asynchronously initialize the evaluator."""
+        self.ragas_prompt = await self._load_ragas_prompt_async()
         if HAS_RAGAS:
             self.metrics = {
                 "faithfulness": faithfulness,
@@ -109,12 +120,12 @@ class RAGEvaluator:
             logging.getLogger(__name__).warning(
                 "No evaluation method available (RAGAS + LLM judge disabled)"
             )
-    
-    def _load_ragas_prompt(self) -> str:
-        """Load RAGAS prompt template from file."""
+
+    async def _load_ragas_prompt_async(self) -> str:
+        """Load RAGAS prompt template from file asynchronously."""
         try:
-            with open(self.ragas_prompt_path, "r") as f:
-                return f.read().strip()
+            async with aiofiles.open(self.ragas_prompt_path, "r") as f:
+                return (await f.read()).strip()
         except (FileNotFoundError, IOError):
             logger.warning(f"RAGAS prompt file not found at {self.ragas_prompt_path}, using default prompt")
             return """
