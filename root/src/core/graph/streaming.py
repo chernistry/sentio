@@ -134,65 +134,82 @@ class StreamingWrapper:
 
 
 async def stream_generator_node(state, pipeline):
+    """Non-streaming fallback for the generator node.
+
+    This function is invoked by LangGraph during regular graph execution and **must**
+    return the final state object so that downstream nodes receive the updated
+    answer and metadata.  A dedicated async generator (attached via the
+    ``.astream`` attribute) handles incremental token streaming for the wrapper
+    in :class:`StreamingWrapper`.
     """
-    Streaming version of the generator node.
-    
-    This is a drop-in replacement for the regular generator_node that supports
-    streaming token output.
-    
-    Args:
-        state: The current graph state
-        pipeline: The pipeline instance with generation capabilities
-        
-    Yields:
-        Incremental tokens as they're generated
-        
-    Returns:
-        Final state with complete answer
-    """
-    query = state.normalized_query or state.query
-    logger.debug(f"Generating answer (streaming) for query: {query}")
-    
-    # Format context string from reranked documents
+
+    query: str = state.normalized_query or state.query
+    logger.debug("Generating answer (non-streaming) for query: %s", query)
+
+    # Compose context from already-retrieved or reranked documents.
     context_docs = state.reranked_documents or state.retrieved_documents
-    
-    # Check if pipeline has streaming capability
+
+    generation_result = await pipeline.generate(
+        query,
+        context_docs,
+        mode=pipeline.config.generation_mode,
+    )
+
+    # Persist answer and metadata on the state object.
+    state.answer = generation_result.answer
+    state.metadata.update(
+        {
+            "generation_time": generation_result.total_time,
+            "generation_mode": generation_result.mode,
+            "token_count": generation_result.token_count,
+            "timestamp": generation_result.timestamp,
+        }
+    )
+
+    return state
+
+
+# === Streaming companion =====================================================
+
+async def _stream_generator_node_astream(state, pipeline):
+    """Async generator that yields answer chunks for real-time streaming.
+
+    The implementation mirrors :func:`stream_generator_node` but emits tokens as
+    soon as they are produced by ``pipeline.generate_stream`` (if available). If
+    the pipeline lacks native streaming support we gracefully degrade to the
+    non-streaming ``pipeline.generate`` method and yield the full answer once.
+    """
+
+    query: str = state.normalized_query or state.query
+    logger.debug("Generating answer (streaming) for query: %s", query)
+
+    context_docs = state.reranked_documents or state.retrieved_documents
+
     if hasattr(pipeline, "generate_stream"):
-        # Use the streaming generation method
         async for token in pipeline.generate_stream(
             query,
             context_docs,
-            mode=pipeline.config.generation_mode
+            mode=pipeline.config.generation_mode,
         ):
-            # Yield each token as it arrives
+            # Send incremental chunk to the StreamingWrapper.
             yield {"answer": token}
-            
-            # Update the state incrementally
-            if not hasattr(state, "answer") or state.answer is None:
-                state.answer = token
-            else:
-                state.answer += token
+
+            # Accumulate token into state for downstream consumers.
+            state.answer = (state.answer or "") + token
     else:
-        # Fall back to non-streaming generation
+        # Fallback to single-shot generation when streaming is unavailable.
         generation_result = await pipeline.generate(
             query,
             context_docs,
-            mode=pipeline.config.generation_mode
+            mode=pipeline.config.generation_mode,
         )
-        
-        # Update state
-        state.answer = generation_result.answer
-        
-        # Yield the full answer at once
-        yield {"answer": state.answer}
-    
-    # Update metadata at the end
-    state.metadata["generation_time"] = generation_result.total_time if 'generation_result' in locals() else 0
-    state.metadata["generation_mode"] = generation_result.mode if 'generation_result' in locals() else pipeline.config.generation_mode
-    state.metadata["token_count"] = generation_result.token_count if 'generation_result' in locals() else len(state.answer.split())
-    state.metadata["timestamp"] = generation_result.timestamp if 'generation_result' in locals() else ""
-    
-    return state
 
-# Attach streaming method to the node function
-stream_generator_node.astream = stream_generator_node 
+        state.answer = generation_result.answer
+        yield {"answer": generation_result.answer}
+
+    # NOTE: Metadata is populated by the non-streaming function or by downstream
+    # post-processing nodes, so we do not duplicate that work here.
+
+
+# Expose the async generator for the StreamingWrapper to detect.
+stream_generator_node.astream = _stream_generator_node_astream 
