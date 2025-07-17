@@ -11,11 +11,14 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict, List, Optional, Callable
+import inspect
+from functools import partial
 
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
+from langchain_core.runnables import RunnableConfig
 
-from root.src.core.pipeline import PipelineConfig, RetrievalStrategy, GenerationMode
+from root.src.core.pipeline import PipelineConfig, RetrievalStrategy, GenerationMode, SentioRAGPipeline
 from root.src.core.plugin_manager import PluginManager
 from root.src.utils.settings import settings
 from .ragas_node import ragas_evaluation_node
@@ -73,7 +76,7 @@ def input_normalizer_node(state: RAGState) -> RAGState:
     return state
 
 
-async def retriever_node(state: RAGState, pipeline) -> RAGState:
+async def retriever_node(state: RAGState, *, pipeline) -> RAGState:
     """
     Retrieve relevant documents for the query.
     
@@ -97,7 +100,7 @@ async def retriever_node(state: RAGState, pipeline) -> RAGState:
     return state
 
 
-async def reranker_node(state: RAGState, pipeline) -> RAGState:
+async def reranker_node(state: RAGState, *, pipeline) -> RAGState:
     """
     Rerank retrieved documents.
     
@@ -121,7 +124,7 @@ async def reranker_node(state: RAGState, pipeline) -> RAGState:
     return state
 
 
-async def generator_node(state: RAGState, pipeline) -> RAGState:
+async def generator_node(state: RAGState, *, pipeline) -> RAGState:
     """
     Generate an answer based on the query and context.
     
@@ -219,38 +222,45 @@ def build_basic_graph(settings: PipelineConfig, pipeline = None) -> StateGraph:
     registered_nodes = plugin_manager.get_graph_nodes("basic")
     
     # Add all nodes to the graph
-    graph.add_node("input_normalizer", 
-                  lambda state: registered_nodes["input_normalizer"](state))
+    graph.add_node("input_normalizer", registered_nodes["input_normalizer"])
     
     # Add HyDE expansion node if enabled
     if HYDE_ENABLED and pipeline is not None:
         logger.info("Adding HyDE expansion node to the graph")
-        graph.add_node("hyde_expander", 
-                      lambda state: registered_nodes["hyde_expander"](state, pipeline))
+        node_func = registered_nodes["hyde_expander"]
+        graph.add_node("hyde_expander", partial(node_func, pipeline=pipeline))
     
-    graph.add_node("retriever", 
-                  lambda state: registered_nodes["retriever"](state, pipeline))
-    graph.add_node("reranker", 
-                  lambda state: registered_nodes["reranker"](state, pipeline))
-    graph.add_node("generator", 
-                  lambda state: registered_nodes["generator"](state, pipeline))
-    graph.add_node("post_processor", 
-                  lambda state: registered_nodes["post_processor"](state))
+    node_func = registered_nodes["retriever"]
+    graph.add_node("retriever", partial(node_func, pipeline=pipeline))
+    
+    node_func = registered_nodes["reranker"]
+    graph.add_node("reranker", partial(node_func, pipeline=pipeline))
+
+    node_func = registered_nodes["generator"]
+    graph.add_node("generator", partial(node_func, pipeline=pipeline))
+
+    graph.add_node("post_processor", registered_nodes["post_processor"])
     
     # Add RAGAS evaluation node if automatic evaluation is enabled
     if settings.enable_automatic_evaluation and pipeline is not None:
         logger.info("Adding RAGAS evaluation node to the graph")
-        graph.add_node("ragas_evaluator", 
-                      lambda state: registered_nodes["ragas_evaluator"](state, pipeline))
+        node_func = registered_nodes["ragas_evaluator"]
+        graph.add_node("ragas_evaluator", partial(node_func, pipeline=pipeline))
     
     # Add custom nodes from plugins
     for node_name, node_func in registered_nodes.items():
-        if node_name not in ["input_normalizer", "retriever", "reranker", 
-                            "generator", "post_processor", "hyde_expander", 
-                            "ragas_evaluator"]:
+        if node_name not in [
+            "input_normalizer", "retriever", "reranker", 
+            "generator", "post_processor", "hyde_expander", 
+            "ragas_evaluator"
+        ]:
             logger.info(f"Adding custom node {node_name} to the graph")
-            graph.add_node(node_name, lambda state, n=node_name: registered_nodes[n](state, pipeline))
-    
+            sig = inspect.signature(node_func)
+            if 'pipeline' in sig.parameters:
+                graph.add_node(node_name, partial(node_func, pipeline=pipeline))
+            else:
+                graph.add_node(node_name, node_func)
+
     # Define the edges in the graph
     graph.add_edge("input_normalizer", "hyde_expander" if HYDE_ENABLED and pipeline is not None else "retriever")
     
@@ -297,40 +307,45 @@ def build_streaming_graph(settings: PipelineConfig, pipeline = None) -> Streamin
     registered_nodes = plugin_manager.get_graph_nodes("streaming")
     
     # Add all nodes to the graph
-    graph.add_node("input_normalizer", 
-                  lambda state: registered_nodes["input_normalizer"](state))
+    graph.add_node("input_normalizer", registered_nodes["input_normalizer"])
     
     # Add HyDE expansion node if enabled
     if HYDE_ENABLED and pipeline is not None:
         logger.info("Adding HyDE expansion node to the streaming graph")
-        graph.add_node("hyde_expander", 
-                      lambda state: registered_nodes["hyde_expander"](state, pipeline))
+        node_func = registered_nodes["hyde_expander"]
+        graph.add_node("hyde_expander", partial(node_func, pipeline=pipeline))
     
-    graph.add_node("retriever", 
-                  lambda state: registered_nodes["retriever"](state, pipeline))
-    graph.add_node("reranker", 
-                  lambda state: registered_nodes["reranker"](state, pipeline))
+    node_func = registered_nodes["retriever"]
+    graph.add_node("retriever", partial(node_func, pipeline=pipeline))
+
+    node_func = registered_nodes["reranker"]
+    graph.add_node("reranker", partial(node_func, pipeline=pipeline))
     
     # Use the streaming generator node
-    graph.add_node("generator", 
-                  lambda state: registered_nodes["generator"](state, pipeline))
+    node_func = registered_nodes["generator"]
+    graph.add_node("generator", partial(node_func, pipeline=pipeline))
     
-    graph.add_node("post_processor", 
-                  lambda state: registered_nodes["post_processor"](state))
+    graph.add_node("post_processor", registered_nodes["post_processor"])
     
     # Add RAGAS evaluation node if automatic evaluation is enabled
     if settings.enable_automatic_evaluation and pipeline is not None:
         logger.info("Adding RAGAS evaluation node to the streaming graph")
-        graph.add_node("ragas_evaluator", 
-                      lambda state: registered_nodes["ragas_evaluator"](state, pipeline))
+        node_func = registered_nodes["ragas_evaluator"]
+        graph.add_node("ragas_evaluator", partial(node_func, pipeline=pipeline))
     
     # Add custom nodes from plugins
     for node_name, node_func in registered_nodes.items():
-        if node_name not in ["input_normalizer", "retriever", "reranker", 
-                            "generator", "post_processor", "hyde_expander", 
-                            "ragas_evaluator"]:
+        if node_name not in [
+            "input_normalizer", "retriever", "reranker", 
+            "generator", "post_processor", "hyde_expander", 
+            "ragas_evaluator"
+        ]:
             logger.info(f"Adding custom node {node_name} to the streaming graph")
-            graph.add_node(node_name, lambda state, n=node_name: registered_nodes[n](state, pipeline))
+            sig = inspect.signature(node_func)
+            if 'pipeline' in sig.parameters:
+                graph.add_node(node_name, partial(node_func, pipeline=pipeline))
+            else:
+                graph.add_node(node_name, node_func)
     
     # Define the edges in the graph
     graph.add_edge("input_normalizer", "hyde_expander" if HYDE_ENABLED and pipeline is not None else "retriever")
@@ -357,4 +372,28 @@ def build_streaming_graph(settings: PipelineConfig, pipeline = None) -> Streamin
     compiled_graph = graph.compile()
     
     # Wrap the graph with the streaming wrapper
-    return StreamingWrapper(compiled_graph) 
+    return StreamingWrapper(compiled_graph)
+
+
+# ==== SERVER ENTRYPOINTS ==== #
+
+def build_basic_graph_for_server(config: Optional[RunnableConfig] = None) -> StateGraph:
+    """
+    Entrypoint for LangGraph server to build the basic RAG graph.
+    
+    This function initializes the pipeline and settings required by the
+    graph factory and is compatible with `langgraph dev`.
+    """
+    pipeline_instance = SentioRAGPipeline()
+    return build_basic_graph(settings, pipeline_instance)
+
+
+def build_streaming_graph_for_server(config: Optional[RunnableConfig] = None) -> StreamingWrapper:
+    """
+    Entrypoint for LangGraph server to build the streaming RAG graph.
+    
+    This function initializes the pipeline and settings required by the
+    graph factory and is compatible with `langgraph dev`.
+    """
+    pipeline_instance = SentioRAGPipeline()
+    return build_streaming_graph(settings, pipeline_instance) 

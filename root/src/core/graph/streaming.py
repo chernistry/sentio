@@ -55,8 +55,8 @@ class StreamingWrapper:
         
         # Find the node with the specified name
         streaming_node = None
-        for node in config.nodes:
-            if node.config["display_name"] == stream_node:
+        for node in config.nodes.values():
+            if node.name == stream_node:
                 streaming_node = node
                 break
         
@@ -68,14 +68,14 @@ class StreamingWrapper:
         queue = asyncio.Queue()
         
         # Create a wrapper around the original node function
-        original_func = streaming_node.config["func"]
+        original_runnable = streaming_node.runnable
         
-        async def wrapped_func(state, *args, **kwargs):
+        async def wrapped_runnable(state, *args, **kwargs):
             """Wrapper around the original node function to capture chunks."""
             # Call the original function which should return an AsyncIterator
-            if hasattr(original_func, "astream"):
+            if hasattr(original_runnable, "astream"):
                 # If the function has streaming capability
-                async for chunk in original_func.astream(state, *args, **kwargs):
+                async for chunk in original_runnable.astream(state, *args, **kwargs):
                     # Put the chunk in the queue
                     await queue.put(chunk)
                     
@@ -83,7 +83,7 @@ class StreamingWrapper:
                 return state
             else:
                 # If the function doesn't have streaming capability, call it normally
-                final_state = await original_func(state, *args, **kwargs)
+                final_state = await original_runnable.ainvoke(state, *args, **kwargs)
                 
                 # Put the final state in the queue
                 await queue.put({chunk_field: getattr(final_state, chunk_field, "")})
@@ -91,7 +91,7 @@ class StreamingWrapper:
                 return final_state
         
         # Replace the original function with our wrapper
-        streaming_node.config["func"] = wrapped_func
+        streaming_node.runnable = wrapped_runnable
         
         # Start the graph execution in a separate task
         graph_task = asyncio.create_task(self.graph.ainvoke(inputs))
@@ -120,7 +120,7 @@ class StreamingWrapper:
                         yield chunk
         finally:
             # Restore the original function
-            streaming_node.config["func"] = original_func
+            streaming_node.runnable = original_runnable
             
             # Cancel the graph task if it's still running
             if not graph_task.done():
@@ -133,7 +133,7 @@ class StreamingWrapper:
                 pass
 
 
-async def stream_generator_node(state, pipeline):
+async def stream_generator_node(state, *, pipeline):
     """Non-streaming fallback for the generator node.
 
     This function is invoked by LangGraph during regular graph execution and **must**
@@ -171,7 +171,7 @@ async def stream_generator_node(state, pipeline):
 
 # === Streaming companion =====================================================
 
-async def _stream_generator_node_astream(state, pipeline):
+async def _stream_generator_node_astream(state, *, pipeline):
     """Async generator that yields answer chunks for real-time streaming.
 
     The implementation mirrors :func:`stream_generator_node` but emits tokens as

@@ -12,7 +12,7 @@
   },
   "env": ".env",
   "graphs": {
-    "basic_rag_graph": "root.src.core.graph.graph_factory:build_basic_graph",
-    "streaming_rag_graph": "root.src.core.graph.graph_factory:build_streaming_graph"
+    "basic_rag_graph": "root.src.core.graph.graph_factory:build_basic_graph_for_server",
+    "streaming_rag_graph": "root.src.core.graph.graph_factory:build_streaming_graph_for_server"
   }
 } 
