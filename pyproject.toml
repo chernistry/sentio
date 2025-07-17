@@ -1,0 +1,58 @@
+[tool.poetry]
+name = "sentio-vnext"
+version = "0.1.0"
+description = "Sentio vNext - LangGraph implementation"
+authors = ["Chernistry <author@example.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.14"
+langgraph = "*"
+fastapi = "*"
+uvicorn = "*"
+pydantic = "*"
+typer = "*"
+qdrant-client = "*"
+sentence-transformers = "*"
+pyarrow = "*"
+pandas = "*"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "*"
+black = "*"
+mypy = "*"
+pre-commit = "*"
+pytest = "*"
+pytest-asyncio = "*"
+pytest-cov = "*"
+
+[tool.poetry.scripts]
+sentio = "src.cli.main:app"
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+select = ["E", "F", "I", "W", "N", "B", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+strict_optional = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+warn_unused_ignores = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api" 
