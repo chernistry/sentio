@@ -436,6 +436,18 @@ class SentioRAGPipeline:
         """
         if not self.initialized:
             raise PipelineError('Pipeline not initialized. Call initialize() first.')
+        
+        # Проверяем, запущен ли уже event loop
+        try:
+            # Пробуем получить текущий event loop
+            loop = asyncio.get_running_loop()
+            # Если мы здесь, значит loop уже запущен, используем синхронную версию
+            logger.warning("Event loop already running, using synchronous retrieval")
+            return self.retrieve_sync(query, top_k)
+        except RuntimeError:
+            # Если loop не запущен, продолжаем с асинхронной версией
+            pass
+            
         start_time = time.time()
         top_k = top_k or self.config.top_k_retrieval
         strategy = self.config.retrieval_strategy
@@ -469,6 +481,113 @@ class SentioRAGPipeline:
             self.stats['errors'] += 1
             logger.error(f'Retrieval failed: {e}')
             raise PipelineError(f'Retrieval failed: {e}')
+            
+    def retrieve_sync(self, query: str, top_k: Optional[int] = None) -> RetrievalResult:
+        """Синхронная версия метода retrieve для использования в случаях,
+        когда event loop уже запущен.
+
+        Args:
+            query: Search query.
+            top_k: Number of documents to retrieve.
+
+        Returns:
+            RetrievalResult with documents and metadata.
+        """
+        if not self.initialized:
+            raise PipelineError('Pipeline not initialized. Call initialize() first.')
+            
+        start_time = time.time()
+        top_k = top_k or self.config.top_k_retrieval
+        strategy = self.config.retrieval_strategy
+        try:
+            documents = []
+            # Используем синхронные методы для извлечения документов
+            if not self.index:
+                logger.warning("No index available for retrieval")
+            elif strategy == RetrievalStrategy.DENSE:
+                # Синхронная версия dense retrieval
+                try:
+                    if self.embed_model:
+                        query_embedding = self.embed_model.embed_sync(query)
+                        if self.qdrant_client:
+                            search_results = self.qdrant_client.search(
+                                collection_name=self.config.collection_name,
+                                query_vector=query_embedding,
+                                limit=top_k,
+                                with_payload=True,
+                                vector_name=TEXT_VECTOR_NAME,
+                            )
+                            
+                            text_keys = ('text', 'document', 'content', 'chunk', 'chunk_text')
+                            for res in search_results:
+                                payload = res.payload or {}
+                                text_segment = next((payload.get(k) for k in text_keys if payload.get(k)), '')
+                                if not text_segment and payload.get('_node_content'):
+                                    try:
+                                        node_data = json.loads(payload['_node_content'])
+                                        text_segment = node_data.get('text', '')
+                                    except Exception:
+                                        text_segment = ''
+                                source = (
+                                    payload.get('source')
+                                    or payload.get('file_name')
+                                    or payload.get('file_path')
+                                    or 'unknown'
+                                )
+                                payload.setdefault('source', source)
+                                doc = {
+                                    'text': text_segment,
+                                    'source': source,
+                                    'score': float(res.score),
+                                    'metadata': payload,
+                                }
+                                documents.append(doc)
+                except Exception as e:
+                    logger.error(f"Error in sync dense retrieval: {e}")
+            elif strategy in (RetrievalStrategy.HYBRID, RetrievalStrategy.SEMANTIC):
+                # Синхронная версия hybrid/semantic retrieval
+                if self.retriever:
+                    results = self.retriever.retrieve(query, top_k=top_k)
+                    documents = [
+                        {
+                            'text': result.get('text', ''),
+                            'source': result.get('source', 'unknown'),
+                            'score': float(result.get('score', 0)),
+                            'metadata': result
+                        }
+                        for result in results
+                    ]
+                    
+            if self.config.enable_source_filtering:
+                documents = [
+                    doc for doc in documents
+                    if doc.get('score', 0) >= self.config.min_relevance_score
+                ]
+                
+            retrieval_time = time.time() - start_time
+            self.stats['total_retrieval_time'] += retrieval_time
+            self.stats['strategy_usage'][strategy.value] += 1
+            logger.debug(
+                f'Retrieved {len(documents)} documents in {retrieval_time:.2f}s using {strategy.value} (sync)'
+            )
+            return RetrievalResult(
+                documents=documents,
+                query=query,
+                strategy=strategy.value,
+                total_time=retrieval_time,
+                sources_found=len(documents)
+            )
+        except Exception as e:
+            self.stats['errors'] += 1
+            logger.error(f'Sync retrieval failed: {e}')
+            # Возвращаем пустой результат вместо исключения для более стабильной работы
+            return RetrievalResult(
+                documents=[],
+                query=query,
+                strategy=strategy.value,
+                total_time=time.time() - start_time,
+                sources_found=0
+            )
 
 
 

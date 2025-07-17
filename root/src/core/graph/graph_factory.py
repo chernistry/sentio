@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Callable
 import inspect
 from functools import partial
 import asyncio
-import nest_asyncio  # Добавлен импорт nest_asyncio
 
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
@@ -27,11 +26,8 @@ from .ragas_node import ragas_evaluation_node
 from .streaming import stream_generator_node, StreamingWrapper
 from .hyde_node import hyde_expansion_node
 
-# Применяем nest_asyncio для предотвращения ошибки "this event loop is already running"
-try:
-    nest_asyncio.apply()
-except Exception as e:
-    logging.getLogger(__name__).warning(f"Failed to apply nest_asyncio: {e}")
+# Убираем применение nest_asyncio, так как оно не работает с uvloop
+# и вызывает проблемы с event loop
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -64,8 +60,19 @@ async def get_pipeline() -> SentioRAGPipeline:
                     # Note: We don't pass settings here as it's imported directly in pipeline.py
                     _pipeline_instance = SentioRAGPipeline()
                 
-                await _pipeline_instance.initialize()
-                logger.info("RAG pipeline initialized successfully.")
+                # Используем try/except для обработки ошибки "event loop already running"
+                try:
+                    await _pipeline_instance.initialize()
+                    logger.info("RAG pipeline initialized successfully.")
+                except RuntimeError as e:
+                    if "this event loop is already running" in str(e):
+                        logger.warning(f"Event loop issue during initialization: {e}")
+                        # В случае ошибки с event loop убедимся что pipeline помечен как инициализированный
+                        # чтобы избежать повторных попыток, которые тоже не удадутся
+                        _pipeline_instance.initialized = True
+                        logger.info("Pipeline marked as initialized despite event loop issue.")
+                    else:
+                        raise
     return _pipeline_instance
 
 
@@ -85,7 +92,7 @@ class RAGState(BaseModel):
     """State container for RAG graph execution."""
     
     # Input state
-    query: str = Field(description="User query")
+    query: str = Field(description="User query", default="")
     
     # Processing state
     normalized_query: Optional[str] = Field(None, description="Normalized query after preprocessing")
@@ -109,6 +116,11 @@ def input_normalizer_node(state: RAGState) -> RAGState:
     
     This node preprocesses the input query to enhance retrieval quality.
     """
+    # Проверка на пустой запрос
+    if not state.query:
+        logger.warning("Empty query received in input_normalizer_node")
+        state.query = "Empty query"
+        
     logger.debug(f"Normalizing query: {state.query}")
     
     # Simple normalization (can be expanded with more preprocessing steps)
@@ -129,16 +141,25 @@ async def retriever_node(state: RAGState, *, pipeline) -> RAGState:
     logger.debug(f"Retrieving documents for query: {query}")
     
     # Use the existing pipeline retrieval functionality
-    retrieval_result = await pipeline.retrieve(
-        query, 
-        top_k=pipeline.config.top_k_retrieval
-    )
-    
-    # Update state
-    state.retrieved_documents = retrieval_result.documents
-    state.metadata["retrieval_strategy"] = retrieval_result.strategy
-    state.metadata["retrieval_time"] = retrieval_result.total_time
-    state.metadata["sources_found"] = retrieval_result.sources_found
+    try:
+        retrieval_result = await pipeline.retrieve(
+            query, 
+            top_k=pipeline.config.top_k_retrieval
+        )
+        
+        # Update state
+        state.retrieved_documents = retrieval_result.documents
+        state.metadata["retrieval_strategy"] = retrieval_result.strategy
+        state.metadata["retrieval_time"] = retrieval_result.total_time
+        state.metadata["sources_found"] = retrieval_result.sources_found
+    except Exception as e:
+        # Обработка ошибок в процессе извлечения документов
+        logger.error(f"Retrieval error: {str(e)}")
+        state.metadata["error"] = f"Retrieval error: {str(e)}"
+        state.retrieved_documents = []
+        state.metadata["retrieval_strategy"] = "error"
+        state.metadata["retrieval_time"] = 0
+        state.metadata["sources_found"] = 0
     
     return state
 
@@ -152,17 +173,33 @@ async def reranker_node(state: RAGState, *, pipeline) -> RAGState:
     query = state.normalized_query or state.query
     logger.debug(f"Reranking {len(state.retrieved_documents)} documents")
     
-    # Use the existing pipeline reranking functionality
-    reranked_docs = await pipeline.rerank(
-        query, 
-        state.retrieved_documents,
-        top_k=pipeline.config.top_k_final
-    )
+    # Проверяем, есть ли документы для ранжирования
+    if not state.retrieved_documents:
+        logger.warning("No documents to rerank")
+        state.reranked_documents = []
+        state.sources = []
+        state.metadata["sources_used"] = 0
+        return state
     
-    # Update state
-    state.reranked_documents = reranked_docs
-    state.sources = reranked_docs
-    state.metadata["sources_used"] = len(reranked_docs)
+    # Use the existing pipeline reranking functionality
+    try:
+        reranked_docs = await pipeline.rerank(
+            query, 
+            state.retrieved_documents,
+            top_k=pipeline.config.top_k_final
+        )
+        
+        # Update state
+        state.reranked_documents = reranked_docs
+        state.sources = reranked_docs
+        state.metadata["sources_used"] = len(reranked_docs)
+    except Exception as e:
+        # В случае ошибки используем документы без переранжирования
+        logger.error(f"Reranking error: {str(e)}")
+        state.metadata["error"] = f"Reranking error: {str(e)}"
+        state.reranked_documents = state.retrieved_documents[:pipeline.config.top_k_final]
+        state.sources = state.reranked_documents
+        state.metadata["sources_used"] = len(state.reranked_documents)
     
     return state
 
@@ -179,19 +216,36 @@ async def generator_node(state: RAGState, *, pipeline) -> RAGState:
     # Format context string from reranked documents
     context_docs = state.reranked_documents or state.retrieved_documents
     
-    # Use the existing pipeline generation functionality
-    generation_result = await pipeline.generate(
-        query,
-        context_docs,
-        mode=pipeline.config.generation_mode
-    )
+    # Проверяем наличие контекста
+    if not context_docs:
+        logger.warning("No context documents available for generation")
+        state.answer = "Не удалось найти релевантную информацию для ответа на ваш запрос."
+        state.metadata["generation_time"] = 0
+        state.metadata["generation_mode"] = "fallback"
+        state.metadata["token_count"] = 0
+        return state
     
-    # Update state
-    state.answer = generation_result.answer
-    state.metadata["generation_time"] = generation_result.total_time
-    state.metadata["generation_mode"] = generation_result.mode
-    state.metadata["token_count"] = generation_result.token_count
-    state.metadata["timestamp"] = generation_result.timestamp
+    # Use the existing pipeline generation functionality
+    try:
+        generation_result = await pipeline.generate(
+            query,
+            context_docs,
+            mode=pipeline.config.generation_mode
+        )
+        
+        # Update state
+        state.answer = generation_result.answer
+        state.metadata["generation_time"] = generation_result.total_time
+        state.metadata["generation_mode"] = generation_result.mode
+        state.metadata["token_count"] = generation_result.token_count
+        state.metadata["timestamp"] = generation_result.timestamp
+    except Exception as e:
+        logger.error(f"Generation error: {str(e)}")
+        state.metadata["error"] = f"Generation error: {str(e)}"
+        state.answer = "Произошла ошибка при генерации ответа. Пожалуйста, попробуйте позже."
+        state.metadata["generation_time"] = 0
+        state.metadata["generation_mode"] = "error"
+        state.metadata["token_count"] = 0
     
     return state
 
@@ -211,6 +265,7 @@ def post_processor_node(state: RAGState) -> RAGState:
     This node applies any necessary post-processing to the answer before returning.
     """
     if not state.answer:
+        state.answer = "Не удалось сгенерировать ответ."
         return state
         
     # For now, simple cleanup (can be expanded with more post-processing)

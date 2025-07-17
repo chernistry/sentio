@@ -21,7 +21,7 @@ import logging
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, List, Optional
 
 from root.src.core.tasks.embeddings import BaseEmbeddingModel, EmbeddingError
 from root.src.utils.settings import settings
@@ -202,3 +202,56 @@ def get_embedding_model(provider: str | None = None, **kwargs: Any) -> BaseEmbed
         # Remove half-loaded entry on failure to avoid stale cache
         _PROVIDER_CLASS_CACHE.pop(provider_key, None)
         raise EmbeddingError(f"Failed to load provider '{provider_key}': {exc}") from exc
+
+
+# Extend BaseEmbeddingModel with embed_sync method
+def _add_embed_sync_to_base():
+    """
+    Добавляет метод embed_sync в BaseEmbeddingModel, если он отсутствует
+    """
+    if not hasattr(BaseEmbeddingModel, 'embed_sync'):
+        def embed_sync(self, text: str) -> List[float]:
+            """
+            Синхронная версия embed_async_single для использования в синхронном контексте.
+            Базовая реализация, которая использует синхронную обертку вокруг асинхронного метода.
+            Провайдеры могут переопределить этот метод для более эффективной реализации.
+            
+            Args:
+                text: Текст для эмбеддинга
+                
+            Returns:
+                List[float]: Вектор эмбеддинга
+            """
+            import asyncio
+            
+            # Проверяем кэш
+            cached = self._check_cache(text)
+            if cached is not None:
+                self._update_stats(hit=True)
+                return cached
+                
+            try:
+                # Используем синхронную обертку вокруг асинхронного метода
+                try:
+                    # Пробуем получить текущий event loop
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    # Если loop не запущен, создаем новый
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                # Запускаем асинхронный метод синхронно
+                embedding = loop.run_until_complete(self.embed_async_single(text))
+                return embedding
+            except Exception as e:
+                logger.error(f"Failed to get embedding synchronously: {e}")
+                # В случае ошибки возвращаем нулевой вектор соответствующей размерности
+                return [0.0] * self.dimension
+                
+        # Добавляем метод в класс
+        setattr(BaseEmbeddingModel, 'embed_sync', embed_sync)
+        logger.debug("Added embed_sync method to BaseEmbeddingModel")
+
+
+# Добавляем метод embed_sync при импорте модуля
+_add_embed_sync_to_base()

@@ -12,9 +12,10 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import httpx
+import requests
 
 from root.src.core.tasks.embeddings import (
     BaseEmbeddingModel,
@@ -138,8 +139,70 @@ class JinaEmbedding(BaseEmbeddingModel):
             return response.json()["data"]
 
     # ------------------------------------------------------------------
+    # Helper for batch embedding requests
+    # ------------------------------------------------------------------
+    async def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Return embeddings for *texts* via a single batched API call.
+
+        This helper consolidates logic shared by :meth:`embed_async_many` and
+        unit-test stubs. It handles retries and returns the raw embedding list
+        in the same order as the supplied ``texts``.
+        """
+        if not texts:
+            return []
+
+        payload = {
+            "input": texts,
+            "model": self.model_name,
+        }
+
+        try:
+            results = await self._execute_async_request(payload)
+            return [item["embedding"] for item in results]
+        except Exception as exc:  # noqa: BLE001 – broad catch for robustness
+            raise EmbeddingError(f"Jina embedding failed: {exc}") from exc
+
+    # ------------------------------------------------------------------
     # Public API – async embedding methods
     # ------------------------------------------------------------------
+
+    async def embed_async_many(self, texts: List[str]) -> List[List[float]]:
+        """Get embeddings for multiple texts asynchronously."""
+        start_time = time.time()
+        
+        if not texts:
+            return []
+        
+        # Check cache first -------------------------------------------------
+        cached_results = [self._check_cache(text) for text in texts]
+        if all(cached is not None for cached in cached_results):
+            self._update_stats(hit=True, duration=time.time() - start_time)
+            return [cast(List[float], c) for c in cached_results]
+
+        # Identify uncached texts ------------------------------------------
+        uncached_indices = [i for i, c in enumerate(cached_results) if c is None]
+        uncached_texts = [texts[i] for i in uncached_indices]
+
+        # Split into batches to obey API limits -----------------------------
+        batched_embeddings: List[List[float]] = []
+        for i in range(0, len(uncached_texts), self.batch_size):
+            batch = uncached_texts[i : i + self.batch_size]
+            batched_embeddings.extend(await self._get_embeddings(batch))
+
+        # Merge cached + fresh embeddings ----------------------------------
+        result: List[List[float]] = []
+        fresh_idx = 0
+        for i, cached in enumerate(cached_results):
+            if cached is not None:
+                result.append(cached)
+            else:
+                emb = batched_embeddings[fresh_idx]
+                result.append(emb)
+                self._store_cache(texts[i], emb)
+                fresh_idx += 1
+
+        self._update_stats(duration=time.time() - start_time)
+        return result
 
     async def embed_async_single(self, text: str) -> List[float]:
         """Get embedding for a single text asynchronously."""
@@ -160,47 +223,53 @@ class JinaEmbedding(BaseEmbeddingModel):
         self._store_cache(text, embedding)
         self._update_stats(duration=time.time() - start_time)
         return embedding
-
-    async def embed_async_many(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for multiple texts asynchronously with batching."""
-        if not texts:
-            return []
-
+            
+    def embed_sync(self, text: str) -> List[float]:
+        """
+        Синхронная версия embed_async_single для использования в синхронном контексте.
+        
+        Args:
+            text: Текст для эмбеддинга
+            
+        Returns:
+            List[float]: Вектор эмбеддинга
+        """
         start_time = time.time()
-        all_embeddings: List[List[float]] = []
-
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i : i + self.batch_size]
-
-            batch_embeddings = [self._check_cache(t) for t in batch]
-            texts_to_embed: List[str] = []
-            idxs_to_embed: List[int] = []
-
-            for j, emb in enumerate(batch_embeddings):
-                if emb is None:
-                    texts_to_embed.append(batch[j])
-                    idxs_to_embed.append(j)
-
-            if texts_to_embed:
-                payload = {"input": texts_to_embed, "model": self.model_name}
-                try:
-                    result = await self._execute_async_request(payload)
-                except Exception as exc:  # noqa: BLE001
-                    raise EmbeddingError("Jina embedding failed") from exc
-
-                for idx, j in enumerate(idxs_to_embed):
-                    embedding = result[idx]["embedding"]
-                    batch_embeddings[j] = embedding
-                    self._store_cache(batch[j], embedding)
-
-            all_embeddings.extend([e for e in batch_embeddings if e is not None])
-
-        cache_hits = sum(1 for t in texts if self._check_cache(t) is not None)
-        self._update_stats(duration=time.time() - start_time)
-        self.stats["cache_hits"] = cache_hits
-        self.stats["cache_misses"] = len(texts) - cache_hits
-
-        return all_embeddings
+        
+        # Проверяем кэш
+        cached = self._check_cache(text)
+        if cached is not None:
+            self._update_stats(hit=True, duration=time.time() - start_time)
+            return cached
+            
+        try:
+            # Используем синхронный HTTP-запрос вместо асинхронного
+            payload = {
+                "input": [text],
+                "model": self.model_name,
+            }
+            
+            response = requests.post(
+                self.BASE_URL, # Changed from self.api_url to self.BASE_URL
+                headers={"Authorization": f"Bearer {self.api_key}"}, # Changed from self.headers to headers
+                json=payload,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            embedding = result["data"][0]["embedding"]
+            
+            # Сохраняем в кэш
+            self._store_cache(text, embedding)
+            
+            self._update_stats(duration=time.time() - start_time)
+            return embedding
+        except Exception as e:
+            self._update_stats(error=True, duration=time.time() - start_time)
+            logger.error(f"Failed to get embedding synchronously: {e}")
+            # В случае ошибки возвращаем нулевой вектор соответствующей размерности
+            return [0.0] * self.dimension
 
     async def close(self) -> None:  # noqa: D401 – imperative
         """No persistent resources to close – method kept for symmetry."""

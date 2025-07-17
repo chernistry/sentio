@@ -8,13 +8,11 @@ reranker models locally is impractical due to performance constraints.
 
 from __future__ import annotations
 
-
-
 import os
 import logging
 import requests
 import time
-
+import json
 from typing import Any, Dict, List, Optional
 
 
@@ -23,11 +21,10 @@ from typing import Any, Dict, List, Optional
 
 # --► CONFIGURATION & CONSTANTS ------------------------------------------------
 
-DEFAULT_JINA_RERANK_MODEL: str = "jina-reranker-v2-base-multilingual"
+DEFAULT_JINA_RERANK_MODEL: str = "jina-reranker-v2-base-en"
 JINA_RERANK_URL: str = "https://api.jina.ai/v1/rerank"
 
 logger = logging.getLogger(__name__)
-
 
 
 # --► RERANKER IMPLEMENTATION ---------------------------------------------------
@@ -55,7 +52,7 @@ class JinaReranker:
 
         Args:
             model_name (str | None): Custom model name. If None, the
-                JINA_RERANK_MODEL environment variable or the default model
+                RERANKER_MODEL environment variable or the default model
                 is used.
             api_key (str | None): Jina API key. If None, the JINA_API_KEY
                 environment variable is used.
@@ -88,13 +85,14 @@ class JinaReranker:
             "Accept": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
+        
+        # Установка таймаута запросов для предотвращения зависания
+        self.timeout: int = int(os.getenv("RERANKER_TIMEOUT", "30"))
+        
         logger.debug("Jina reranker initialized successfully")
-
-
 
     # --------------------------------------------------------------------------
     # --► DATA EXTRACTION & TRANSFORMATION
-    # ⚠️ POTENTIALLY ERROR-PRONE LOGIC
     # --------------------------------------------------------------------------
 
     def rerank(
@@ -127,20 +125,27 @@ class JinaReranker:
             logger.debug("No documents to rerank")
             return []
 
+        if not query or query.strip() == "":
+            logger.warning("Empty query received in reranker, using default ranking")
+            return self._default_ranking(docs, top_k)
+
         logger.info(f"Reranking {len(docs)} documents with Jina API")
         start_time = time.time()
 
-
         try:
-            doc_texts: List[str] = [
-                doc.get("text", "") for doc in docs
-            ]
+            doc_texts: List[str] = []
+            for doc in docs:
+                text = doc.get("text", "")
+                if not text:
+                    logger.warning("Document without 'text' field encountered")
+                    text = json.dumps(doc)  # Используем JSON представление документа как fallback
+                doc_texts.append(text)
 
             payload: Dict[str, Any] = {
                 "model": self.model_name,
                 "query": query,
                 "documents": doc_texts,
-                "top_n": min(len(docs), top_k * 2),
+                "top_n": min(len(docs), top_k * 2),  # Запрашиваем больше результатов для устойчивости
             }
 
             logger.debug(
@@ -148,29 +153,41 @@ class JinaReranker:
                 JINA_RERANK_URL,
                 self.model_name,
                 payload["top_n"],
-                self.api_key[:8],
+                self.api_key[:5] + "..." if len(self.api_key) > 5 else "*****",
             )
 
             response = requests.post(
                 JINA_RERANK_URL,
                 headers=self.headers,
                 json=payload,
-                timeout=30,
+                timeout=self.timeout,
             )
-            logger.debug(
-                "[JinaReranker] Response status: %s", response.status_code
-            )
+            
+            if not response.ok:
+                logger.error(
+                    f"Jina API error: {response.status_code} - {response.text}"
+                )
+                return self._default_ranking(docs, top_k)
+                
             response.raise_for_status()
-
             result: Dict[str, Any] = response.json()
+            
             logger.debug(
                 f"Jina API response received in "
                 f"{time.time() - start_time:.2f}s"
             )
 
+            if "results" not in result or not result["results"]:
+                logger.warning("No results in Jina API response")
+                return self._default_ranking(docs, top_k)
+
             scored_docs: List[Dict[str, Any]] = []
             for item in result.get("results", []):
                 index: int = item["index"]
+                if index >= len(docs):
+                    logger.warning(f"Jina returned invalid index {index}, skipping")
+                    continue
+                    
                 score: float = item["relevance_score"]
 
                 doc_copy: Dict[str, Any] = docs[index].copy()
@@ -192,10 +209,33 @@ class JinaReranker:
         except requests.RequestException as error:
             logger.error(f"Error calling Jina Reranker API: {error}")
             logger.warning("Falling back to original document order")
+            return self._default_ranking(docs, top_k)
+        except (KeyError, IndexError, ValueError, TypeError) as e:
+            logger.error(f"Error processing Jina API response: {e}")
+            return self._default_ranking(docs, top_k)
+        except Exception as e:
+            logger.error(f"Unexpected error in reranker: {e}")
+            return self._default_ranking(docs, top_k)
 
-            fallback_docs: List[Dict[str, Any]] = []
-            for idx, doc in enumerate(docs[:top_k]):
-                doc["rerank_score"] = 1.0 - (idx * 0.1)
-                fallback_docs.append(doc)
+    def _default_ranking(self, docs: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
+        """
+        Provides a fallback ranking when the API call fails.
+        
+        Args:
+            docs: List of documents to rank
+            top_k: Number of top documents to return
+            
+        Returns:
+            List of documents with default scoring
+        """
+        logger.info("Using default ranking for documents")
+        fallback_docs: List[Dict[str, Any]] = []
+        
+        # Limit to top_k documents
+        for idx, doc in enumerate(docs[:top_k]):
+            doc_copy = doc.copy()
+            # Assign decreasing scores based on original order
+            doc_copy["rerank_score"] = 1.0 - (idx * 0.1)
+            fallback_docs.append(doc_copy)
 
-            return fallback_docs
+        return fallback_docs
