@@ -1,0 +1,52 @@
+# Pod Disruption Budget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sentio-rag-pdb
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: availability
+spec:
+  minAvailable: 2  # Ensure at least 2 pods are always available
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sentio-rag
+      app.kubernetes.io/instance: production
+
+---
+# Pod Disruption Budget for Qdrant
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qdrant-pdb
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: availability
+spec:
+  minAvailable: 1  # Ensure Qdrant is always available
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qdrant
+      app.kubernetes.io/instance: production
+
+---
+# Pod Disruption Budget for Redis
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: availability
+spec:
+  minAvailable: 1  # Ensure Redis is always available
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: production

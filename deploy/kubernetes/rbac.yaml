@@ -1,0 +1,82 @@
+# Role for Sentio RAG application
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: sentio-rag
+  name: sentio-rag-role
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: rbac
+rules:
+# Allow reading ConfigMaps and Secrets for configuration
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+# Allow reading pod information for health checks
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+# Allow reading services for service discovery
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list"]
+
+---
+# RoleBinding to bind the role to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sentio-rag-rolebinding
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: rbac
+subjects:
+- kind: ServiceAccount
+  name: sentio-rag
+  namespace: sentio-rag
+roleRef:
+  kind: Role
+  name: sentio-rag-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ClusterRole for metrics collection (if needed)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sentio-rag-metrics
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: rbac
+rules:
+# Allow reading node metrics
+- apiGroups: [""]
+  resources: ["nodes", "nodes/metrics"]
+  verbs: ["get", "list"]
+# Allow reading pod metrics
+- apiGroups: [""]
+  resources: ["pods", "pods/metrics"]
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding for metrics collection
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sentio-rag-metrics-binding
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: rbac
+subjects:
+- kind: ServiceAccount
+  name: sentio-rag
+  namespace: sentio-rag
+roleRef:
+  kind: ClusterRole
+  name: sentio-rag-metrics
+  apiGroup: rbac.authorization.k8s.io

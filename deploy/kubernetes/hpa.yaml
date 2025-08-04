@@ -1,0 +1,103 @@
+# Horizontal Pod Autoscaler for the main application
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sentio-rag-hpa
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sentio-rag
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  # CPU-based scaling
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # Memory-based scaling
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metrics for request rate
+  - type: Pods
+    pods:
+      metric:
+        name: rag_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "50"
+  # Custom metrics for response time
+  - type: Object
+    object:
+      metric:
+        name: rag_response_time_p95
+      target:
+        type: Value
+        value: "2000m"  # 2 seconds
+      describedObject:
+        apiVersion: v1
+        kind: Service
+        name: sentio-rag-service
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 5 minutes
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60  # 1 minute
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 2
+        periodSeconds: 30
+      selectPolicy: Max
+
+---
+# Vertical Pod Autoscaler (VPA) for resource optimization
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: sentio-rag-vpa
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: autoscaling
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sentio-rag
+  updatePolicy:
+    updateMode: "Auto"  # Options: "Off", "Initial", "Auto"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: sentio-rag
+      minAllowed:
+        cpu: 100m
+        memory: 256Mi
+      maxAllowed:
+        cpu: 2000m
+        memory: 4Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits

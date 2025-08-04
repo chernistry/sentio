@@ -1,0 +1,238 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentio-rag
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/version: "3.0.0"
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: sentio-rag-system
+    app.kubernetes.io/managed-by: kubernetes
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sentio-rag
+      app.kubernetes.io/instance: production
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sentio-rag
+        app.kubernetes.io/instance: production
+        app.kubernetes.io/version: "3.0.0"
+        app.kubernetes.io/component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: sentio-rag
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: sentio-rag
+        image: sentio-rag:3.0.0  # Replace with your actual image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        # Configuration from ConfigMap
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: LOG_LEVEL
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: ENVIRONMENT
+        - name: QDRANT_URL
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: QDRANT_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: REDIS_URL
+        - name: EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: EMBEDDING_MODEL
+        - name: CHUNK_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: CHUNK_SIZE
+        - name: RETRIEVAL_TOP_K
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: RETRIEVAL_TOP_K
+        - name: ENABLE_METRICS
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: ENABLE_METRICS
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: sentio-rag-config
+              key: CORS_ORIGINS
+        
+        # Secrets
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sentio-rag-secrets
+              key: OPENAI_API_KEY
+        - name: JINA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sentio-rag-secrets
+              key: JINA_API_KEY
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sentio-rag-secrets
+              key: QDRANT_API_KEY
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: sentio-rag-secrets
+              key: REDIS_PASSWORD
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sentio-rag-secrets
+              key: JWT_SECRET_KEY
+        - name: EMBEDDING_MODEL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sentio-rag-secrets
+              key: EMBEDDING_MODEL_API_KEY
+        
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: app-cache
+          mountPath: /app/cache
+      
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: app-cache
+        emptyDir:
+          sizeLimit: 1Gi
+      
+      # Pod anti-affinity for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - sentio-rag
+              topologyKey: kubernetes.io/hostname
+      
+      # Node selection
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      
+      tolerations:
+      - key: "app"
+        operator: "Equal"
+        value: "sentio-rag"
+        effect: "NoSchedule"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentio-rag-service
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sentio-rag
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: api

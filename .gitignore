@@ -1,0 +1,95 @@
+# === IDE & Project Metadata ===
+.idea/
+.vscode/
+.dev/
+.archive/
+.archive
+
+# === Environment & Secrets ===
+.env
+.env
+.env.azure
+keys.csv
+
+# === Data & Artifacts ===
+data/
+data/raw/
+root/data/raw/
+prep/
+models/
+.models/
+qdrant_data/
+qdrant_data/*
+
+# === System & OS Files ===
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# === Python Bytecode & Caches ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*pycache*/
+*.class
+
+# === Build, Distribution & Archives ===
+*.egg-info/
+dist/
+build/
+*.tar.gz
+*.tar.xz
+*.tar.bz2
+*.tar.wim
+*.tar.iso
+*.tar.lzma
+*.tar.lzo
+*.zip
+*.7z
+
+# === Logs & Debug ===
+logs/
+*.log
+.log
+debug/
+nohup.out
+
+# === Temporary & Misc Files ===
+tmp/
+temp/
+.cache/
+.cache
+*.tmp
+*.bak
+*.swp
+*.swo
+*.orig
+*.rej
+
+# === Code Samples & Ephemeral Scripts ===
+/codesamples/
+infra/azure/deploy-api.sh
+infra/azure/deploy-worker.sh
+
+# === Planning & Notes ===
+plan.md
+plan*
+run.md
+
+# === Warp & Misc Tools ===
+warp/
+
+prompt.md
+.coverage
+.coveragerc
+.coverage
+.tree.md
+
+plugins/ragas_examples/*
+*.pckl
+langgraph_migration.md
+userinput.py
+CLAUDE.md

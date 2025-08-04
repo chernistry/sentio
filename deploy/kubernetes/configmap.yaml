@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sentio-rag-config
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: config
+data:
+  # Application configuration
+  LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"
+  
+  # Vector store configuration
+  QDRANT_URL: "http://qdrant-service:6333"
+  VECTOR_COLLECTION_NAME: "documents"
+  VECTOR_DIMENSION: "1024"
+  
+  # Embedding configuration  
+  EMBEDDING_MODEL: "BAAI/bge-large-en-v1.5"
+  EMBEDDING_BATCH_SIZE: "32"
+  
+  # Cache configuration
+  REDIS_URL: "redis://redis-service:6379"
+  CACHE_TTL_DEFAULT: "3600"
+  CACHE_TTL_EMBEDDINGS: "86400"
+  
+  # Chunking configuration
+  CHUNK_SIZE: "1000"
+  CHUNK_OVERLAP: "200"
+  
+  # Retrieval configuration
+  RETRIEVAL_TOP_K: "20"
+  RERANKING_TOP_K: "10"
+  SELECTION_TOP_K: "5"
+  
+  # Rate limiting
+  RATE_LIMIT_CHAT: "30/minute"
+  RATE_LIMIT_EMBED: "100/hour"
+  
+  # Monitoring
+  ENABLE_METRICS: "true"
+  METRICS_PORT: "9090"
+  ENABLE_TRACING: "true"
+  
+  # Security
+  CORS_ORIGINS: '["https://your-domain.com"]'
+  SECURE_HEADERS: "true"

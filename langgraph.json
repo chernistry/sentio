@@ -1,0 +1,18 @@
+{
+  "project_name": "sense-rag",
+  "project_description": "Sentio RAG Pipeline with LangGraph",
+  "dependencies": ["."],
+  "langsmith": {
+    "api_url": "https://api.smith.langchain.com",
+    "project_name": "sense-rag"
+  },
+  "server": {
+    "port": 2024,
+    "host": "127.0.0.1"
+  },
+  "env": ".env",
+  "graphs": {
+    "basic_rag_graph": "src.core.graph:build_basic_graph",
+    "streaming_rag_graph": "src.core.graph:build_streaming_graph"
+  }
+} 

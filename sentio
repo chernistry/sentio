@@ -1,0 +1,6 @@
+#!/bin/bash
+# Symbolic link to run Sentio CLI commands
+# Usage: ./sentio <command> [arguments]
+
+# Run run.sh with passed arguments
+./run.sh "$@"

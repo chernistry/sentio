@@ -1,0 +1,120 @@
+# ServiceMonitor for Prometheus scraping
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sentio-rag-metrics
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sentio-rag
+      app.kubernetes.io/instance: production
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+
+---
+# PodMonitor for additional pod-level metrics
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: sentio-rag-pods
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sentio-rag
+      app.kubernetes.io/instance: production
+  podMetricsEndpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+
+---
+# PrometheusRule for alerting
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sentio-rag-alerts
+  namespace: sentio-rag
+  labels:
+    app.kubernetes.io/name: sentio-rag
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/component: monitoring
+spec:
+  groups:
+  - name: sentio-rag.rules
+    rules:
+    - alert: SentioRAGDown
+      expr: up{job="sentio-rag-service"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Sentio RAG service is down"
+        description: "Sentio RAG service has been down for more than 1 minute."
+        
+    - alert: SentioRAGHighErrorRate
+      expr: rate(rag_requests_total{status=~"5.."}[5m]) / rate(rag_requests_total[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High error rate in Sentio RAG"
+        description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes."
+        
+    - alert: SentioRAGHighLatency
+      expr: histogram_quantile(0.95, rate(rag_request_duration_seconds_bucket[5m])) > 2
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High latency in Sentio RAG"
+        description: "95th percentile latency is {{ $value }}s for the last 5 minutes."
+        
+    - alert: SentioRAGHighMemoryUsage
+      expr: container_memory_usage_bytes{pod=~"sentio-rag-.*"} / container_spec_memory_limit_bytes > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage in Sentio RAG"
+        description: "Memory usage is {{ $value | humanizePercentage }} of limit."
+        
+    - alert: SentioRAGHighCPUUsage
+      expr: rate(container_cpu_usage_seconds_total{pod=~"sentio-rag-.*"}[5m]) / container_spec_cpu_quota * 100 > 80
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU usage in Sentio RAG"
+        description: "CPU usage is {{ $value }}% of limit."
+        
+    - alert: SentioRAGVectorStoreDown
+      expr: up{job="qdrant-service"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Qdrant vector store is down"
+        description: "Qdrant service has been down for more than 1 minute."
+        
+    - alert: SentioRAGCacheDown
+      expr: up{job="redis-service"} == 0
+      for: 1m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Redis cache is down"
+        description: "Redis service has been down for more than 1 minute."

@@ -1,0 +1,343 @@
+[tool.poetry]
+name = "sentio-vnext"
+version = "3.0.0"
+description = "Sentio vNext - Production-ready LangGraph RAG system with enhanced security and observability"
+authors = ["Chernistry <author@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "src"}]
+keywords = ["rag", "langchain", "ai", "machine-learning", "nlp", "search", "embeddings"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.14"
+
+# Core Framework Dependencies
+langgraph = "^0.2.42"
+fastapi = "^0.115.6"
+uvicorn = {extras = ["standard"], version = "^0.32.1"}
+pydantic = "^2.11.7"
+typer = "^0.15.1"
+
+# Vector Database & Search
+qdrant-client = "^1.12.1"
+sentence-transformers = "^3.3.1"
+rank-bm25 = "^0.2.2"
+
+# Data Processing
+pyarrow = "^18.1.0"
+pandas = "^2.2.3"
+numpy = "^2.2.1"
+scikit-learn = "^1.6.0"
+
+# Web & API
+python-multipart = "^0.0.17"
+httpx = "^0.28.1"
+requests = "^2.32.3"
+jinja2 = "^3.1.4"
+
+# Security & Authentication
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+cryptography = "^44.0.0"
+
+# Rate Limiting & Caching
+slowapi = "^0.1.9"
+redis = "^5.2.1"
+cachetools = "^5.5.0"
+
+# Observability & Monitoring
+prometheus-client = "^0.21.1"
+opentelemetry-api = "^1.29.0" 
+opentelemetry-sdk = "^1.29.0"
+opentelemetry-instrumentation-fastapi = "^0.50b0"
+opentelemetry-instrumentation-httpx = "^0.50b0"
+opentelemetry-instrumentation-redis = "^0.50b0"
+opentelemetry-exporter-prometheus = "^0.50b0"
+opentelemetry-exporter-jaeger = "^1.27.0"
+psutil = "^6.1.1"
+
+# LangChain Components
+langchain-core = "^0.3.29"
+langchain-text-splitters = "^0.3.2"
+
+# Configuration & Environment
+python-dotenv = "^1.0.1"
+pyyaml = "^6.0.2"
+
+# Utilities
+rich = "^13.9.4"
+click = "^8.1.8"
+
+[tool.poetry.group.dev.dependencies]
+# Code Quality & Formatting
+ruff = "^0.8.5"
+black = "^24.12.0"
+isort = "^5.13.2"
+pre-commit = "^4.0.1"
+
+# Type Checking
+mypy = "^1.14.0"
+types-requests = "^2.32.0"
+types-redis = "^4.6.0"
+types-pyyaml = "^6.0.12"
+
+# Testing Framework
+pytest = "^8.3.4"
+pytest-asyncio = "^0.25.0"
+pytest-cov = "^6.0.0"
+pytest-mock = "^3.14.0"
+pytest-benchmark = "^4.0.0"
+pytest-xdist = "^3.6.0"
+pytest-timeout = "^2.3.1"
+httpx-mock = "^0.1.0"
+faker = "^33.1.0"
+
+# Security & Code Analysis
+bandit = {extras = ["toml"], version = "^1.8.0"}
+safety = "^3.2.11"
+semgrep = "^1.97.0"
+
+# Performance & Profiling
+py-spy = "^0.3.14"
+memory-profiler = "^0.61.0"
+
+# Additional Development Tools
+ipython = "^8.30.0"
+jupyter = "^1.1.1"
+coverage = {extras = ["toml"], version = "^7.6.9"}
+
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "^1.6.1"
+mkdocs-material = "^9.5.48"
+mkdocstrings = {extras = ["python"], version = "^0.27.0"}
+
+[tool.poetry.group.ui]
+optional = true
+
+[tool.poetry.group.ui.dependencies]
+streamlit = "^1.41.1"
+plotly = "^5.24.1"
+altair = "^5.5.0"
+
+[tool.poetry.scripts]
+sentio = "src.cli.main:app"
+
+[tool.black]
+line-length = 88
+target-version = ["py312", "py313"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+fix = true
+show-fixes = true
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings  
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "N",      # pep8-naming
+    "D",      # pydocstyle
+    "UP",     # pyupgrade
+    "YTT",    # flake8-2020
+    "ANN",    # flake8-annotations
+    "ASYNC",  # flake8-async
+    "S",      # bandit
+    "BLE",    # flake8-blind-except
+    "FBT",    # flake8-boolean-trap
+    "A",      # flake8-builtins
+    "COM",    # flake8-commas
+    "C90",    # mccabe
+    "DTZ",    # flake8-datetimez
+    "T10",    # flake8-debugger
+    "DJ",     # flake8-django
+    "EM",     # flake8-errmsg
+    "EXE",    # flake8-executable
+    "FA",     # flake8-future-annotations
+    "ISC",    # flake8-implicit-str-concat
+    "ICN",    # flake8-import-conventions
+    "G",      # flake8-logging-format
+    "INP",    # flake8-no-pep420
+    "PIE",    # flake8-pie
+    "T20",    # flake8-print
+    "PYI",    # flake8-pyi
+    "PT",     # flake8-pytest-style
+    "Q",      # flake8-quotes
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
+    "SLF",    # flake8-self
+    "SLOT",   # flake8-slots
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+    "TCH",    # flake8-type-checking
+    "INT",    # flake8-gettext
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "TD",     # flake8-todos
+    "FIX",    # flake8-fixme
+    "ERA",    # eradicate
+    "PD",     # pandas-vet
+    "PGH",    # pygrep-hooks
+    "PL",     # pylint
+    "TRY",    # tryceratops
+    "FLY",    # flynt
+    "NPY",    # numpy
+    "PERF",   # perflint
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "D100",   # Missing docstring in public module
+    "D101",   # Missing docstring in public class
+    "D102",   # Missing docstring in public method
+    "D103",   # Missing docstring in public function
+    "D104",   # Missing docstring in public package
+    "D105",   # Missing docstring in magic method
+    "D107",   # Missing docstring in __init__
+    "ANN101", # Missing type annotation for self
+    "ANN102", # Missing type annotation for cls
+    "ANN401", # Dynamically typed expressions (Any)
+    "S101",   # Use of assert
+    "COM812", # Trailing comma missing
+    "ISC001", # Implicitly concatenated string literals
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "ANN", "D", "PLR2004"]
+"scripts/**" = ["T201", "S602", "S603"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pylint]
+max-args = 10
+max-branches = 15
+max-returns = 8
+max-statements = 60
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_no_return = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+no_implicit_optional = true
+strict_optional = true
+check_untyped_defs = true
+show_error_codes = true
+show_column_numbers = true
+show_error_context = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = [
+    "qdrant_client.*",
+    "sentence_transformers.*", 
+    "rank_bm25.*",
+    "sklearn.*",
+    "prometheus_client.*",
+    "redis.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "--strict-markers",
+    "--strict-config", 
+    "--cov=src",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html:htmlcov",
+    "--cov-report=xml",
+    "--cov-fail-under=85",
+    "--cov-branch",
+    "-ra",
+    "--tb=short",
+    "--timeout=300",
+]
+testpaths = ["tests"]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests", 
+    "e2e: marks tests as end-to-end tests",
+    "security: marks tests as security tests",
+    "performance: marks tests as performance tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/migrations/*",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "scripts"]
+skips = ["B101", "B601"]
+
+[tool.bandit.assert_used]
+skips = ["*/tests/*", "*/test_*.py"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

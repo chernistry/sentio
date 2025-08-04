@@ -1,0 +1,88 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: sentio-rag-production
+  annotations:
+    description: "Production deployment for Sentio RAG system"
+
+# Namespace
+namespace: sentio-rag
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: sentio-rag
+  app.kubernetes.io/instance: production
+  app.kubernetes.io/version: "3.0.0"
+  app.kubernetes.io/managed-by: kustomize
+  environment: production
+
+# Resources to include in deployment
+resources:
+- namespace.yaml
+- configmap.yaml
+- secrets.yaml
+- rbac.yaml
+- redis.yaml
+- qdrant.yaml
+- sentio-rag.yaml
+- ingress.yaml
+- monitoring.yaml
+- hpa.yaml
+- pdb.yaml
+- networkpolicy.yaml
+
+# Images
+images:
+- name: sentio-rag
+  newTag: "3.0.0"  # Update this with your actual image tag
+- name: redis
+  newTag: "7-alpine"
+- name: qdrant/qdrant
+  newTag: "v1.7.4"
+
+# ConfigMap generator for additional config
+configMapGenerator:
+- name: deployment-info
+  literals:
+  - DEPLOYMENT_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  - DEPLOYMENT_VERSION=3.0.0
+  - DEPLOYMENT_ENVIRONMENT=production
+
+# Patches for environment-specific customizations
+patches:
+# Production-specific resource limits
+- target:
+    kind: Deployment
+    name: sentio-rag
+  patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 3
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/memory
+      value: "1Gi"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/memory
+      value: "2Gi"
+
+# Production-specific ingress annotations
+- target:
+    kind: Ingress
+    name: sentio-rag-ingress
+  patch: |-
+    - op: add
+      path: /metadata/annotations/nginx.ingress.kubernetes.io~1rate-limit
+      value: "100"
+    - op: add
+      path: /metadata/annotations/nginx.ingress.kubernetes.io~1rate-limit-window
+      value: "1m"
+
+# Replicas for high availability
+replicas:
+- name: sentio-rag
+  count: 3
+- name: qdrant
+  count: 1
+- name: redis
+  count: 1
