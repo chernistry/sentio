@@ -1,4 +1,4 @@
-# Sentio vNext (Boilerplate)
+# Sentio vNext
 > **Boilerplate RAG System with LangGraph Architecture**
 
 ---
