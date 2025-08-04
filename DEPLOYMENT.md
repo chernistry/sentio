@@ -1,10 +1,10 @@
-# Sentio vNext - Production Deployment Guide
+# Sentio vNext - Deployment Guide
 
-> **Enterprise-Grade RAG System Deployment on Kubernetes**
+> **Reference RAG System Deployment on Kubernetes (Example)**
 
 ## Overview
 
-This guide covers the complete deployment of Sentio vNext RAG system for **production workloads**. The deployment architecture is designed for **high availability**, **auto-scaling**, and **zero-downtime operations** with comprehensive **observability** and **security hardening**.
+This guide covers the deployment of Sentio vNext RAG system for production-like workloads. The deployment architecture is designed to illustrate high availability, auto-scaling, and observability with example security configuration.
 
 ## Deployment Architecture
 
@@ -867,28 +867,25 @@ behavior:
 
 ## Conclusion
 
-This deployment guide provides a comprehensive framework for deploying Sentio vNext in production environments. The architecture emphasizes **reliability**, **security**, and **observability** while maintaining **operational simplicity**.
+This deployment guide provides a reference for deploying Sentio vNext in production-like environments. The architecture demonstrates reliability, security, and observability while maintaining operational simplicity.
 
 ### Next Steps
 
-1. **🚀 [Deploy your first production instance](deploy/)**
-2. **📊 [Set up monitoring dashboards](monitoring/)**  
-3. **🔒 [Configure advanced security](security/)**
-4. **📖 [Read the API documentation](docs/api/)**
-5. **💬 [Join the community discussions](discussions/)**
+1. [Deploy your first instance](deploy/)
+2. [Set up monitoring dashboards](monitoring/)  
+3. [Configure security](security/)
+4. [Read the API documentation](docs/api/)
+5. [Join the community discussions](discussions/)
 
 ### Support
 
-- **Production Issues**: [Create a support ticket](issues/)
-- **Enterprise Support**: Available for production deployments
-- **Community Help**: [GitHub Discussions](discussions/)
+- Issues: [Create a support ticket](issues/)
+- Community Help: [GitHub Discussions](discussions/)
 
 ---
 
 <div align="center">
 
-**Deployed with confidence, monitored with precision**
-
-*Built for production workloads by engineers who care about reliability*
+*This deployment is an example/reference, not a production guarantee.*
 
 </div>

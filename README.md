@@ -4,7 +4,7 @@
 ---
 
 **Disclaimer:**
-This repository is a boilerplate/template for building Retrieval-Augmented Generation (RAG) systems using LangGraph. It is not production-ready. Use as a starting point for your own projects; further development, testing, and hardening are required for production use.
+This repository is a template for building Retrieval-Augmented Generation (RAG) systems using LangGraph. It is not production-ready. Use as a starting point for your own projects; further development, testing, and hardening are required for production use.
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-green.svg)](https://fastapi.tiangolo.com/)
@@ -16,8 +16,8 @@ This repository is a boilerplate/template for building Retrieval-Augmented Gener
 | **Category** | **Details** |
 |--------------|-------------|
 | **Architecture** | Microservices example with common patterns |
-| **Performance** | Example: circuit breakers, caching, async processing |
-| **Deployment** | Kubernetes example manifests, basic monitoring |
+| **Performance** | Circuit breakers, caching, async processing (example) |
+| **Deployment** | Kubernetes manifests, basic monitoring (example) |
 | **Security** | OWASP-inspired, with sample rate limiting and RBAC |
 
 ---
@@ -39,16 +39,16 @@ This repository is a boilerplate/template for building Retrieval-Augmented Gener
 
 ## Executive Summary
 
-Sentio vNext is a **boilerplate RAG system** built with a modern microservices architecture, designed as a starting point for projects that may require high availability, performance, and security. Unlike traditional RAG implementations, it leverages **LangGraph's state-machine approach** for document processing workflows with observability and deployment examples. **This is not a production-ready system.**
+Sentio vNext is a boilerplate RAG system built with a microservices architecture, designed as a starting point for projects that may require high availability, performance, and security. It leverages LangGraph's state-machine approach for document processing workflows with observability and deployment examples. **This is not a production-ready system.**
 
-### Key Differentiators
+### Features
 
-- **Reference Engineering**: Example circuit breakers, tracing, error handling
-- **Performance Examples**: Multi-tier caching, async processing, hybrid retrieval
-- **Security Examples**: OWASP Top 10 patterns, rate limiting, input sanitization, RBAC
-- **Observability**: Prometheus metrics, OpenTelemetry tracing, structured logging
-- **Cloud-Native**: Kubernetes deployment examples, HPA/VPA, service mesh ready
-- **Test Suite**: Example tests, CI/CD pipeline, monitoring samples
+- Reference engineering: circuit breakers, tracing, error handling (examples)
+- Performance: multi-tier caching, async processing, hybrid retrieval (examples)
+- Security: OWASP Top 10 patterns, rate limiting, input sanitization, RBAC (examples)
+- Observability: Prometheus metrics, OpenTelemetry tracing, structured logging (examples)
+- Kubernetes deployment manifests, HPA/VPA, service mesh ready (examples)
+- Example tests, CI/CD pipeline, monitoring samples
 
 ---
 
@@ -830,7 +830,7 @@ Migrating from the legacy Sentio system? We've got you covered:
 
 <div align="center">
 
-**Built with excellence for production workloads**
+*This repository is a template/example, not a production solution.*
 
 [Deploy Now](deploy/) • [Full Docs](docs/) • [Report Issues](issues/) • [Discussions](discussions/)
 
@@ -839,5 +839,4 @@ Migrating from the legacy Sentio system? We've got you covered:
 ---
 
 **License**: Creative Commons Attribution-NonCommercial 4.0 International  
-**Enterprise Support**: Available for production deployments  
 **Community**: GitHub Discussions for questions and feature requests
