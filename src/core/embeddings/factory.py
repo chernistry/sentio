@@ -43,7 +43,10 @@ def _load_module(module_path: str) -> Any:
         ImportError: If module cannot be loaded.
     """
     try:
-        return importlib.import_module(module_path)
+        logger.info(f"Starting import of module: {module_path}")
+        module = importlib.import_module(module_path)
+        logger.info(f"Successfully imported module: {module_path}")
+        return module
     except ImportError as e:
         logger.error(f"Failed to import module {module_path}: {e}")
         raise ImportError(f"Failed to load embedding provider module: {e}") from e
@@ -69,6 +72,8 @@ def get_embedder(
     """
     provider_key = (provider or settings.embedder_name).lower()
     model = model_name or settings.embedding_model
+    
+    logger.info(f"Getting embedder for provider: {provider_key}, model: {model}")
 
     # Use cached class if available
     if provider_key in _PROVIDER_CLASS_CACHE:
@@ -93,7 +98,9 @@ def get_embedder(
 
     # Load the module and get the class
     try:
+        logger.info(f"Loading module: {provider_info['module']}")
         module = _load_module(provider_info["module"])
+        logger.info(f"Getting class: {provider_info['class']}")
         model_cls = getattr(module, provider_info["class"])
 
         # Verify it's a BaseEmbedder subclass

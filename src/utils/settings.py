@@ -82,6 +82,9 @@ class Settings:
         self.log_level = os.getenv("LOG_LEVEL", "info").upper()
         self.enable_cors = os.getenv("ENABLE_CORS", "true").lower() == "true"
 
+        # Redis
+        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+
         # Data paths
         self.data_dir = Path(os.getenv("DATA_DIR", "data"))
 

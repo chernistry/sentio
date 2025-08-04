@@ -24,8 +24,10 @@ logger = logging.getLogger(__name__)
 try:
     from pyserini.search import SimpleSearcher  # type: ignore
     _HAS_PYSERINI = True
-except ImportError:  # pragma: no cover – optional dependency
+except (ImportError, RuntimeError) as e:  # pragma: no cover – optional dependency
+    logger.warning(f"Pyserini not available (Java may not be installed): {e}")
     _HAS_PYSERINI = False
+    SimpleSearcher = None  # type: ignore
 
 
 class BM25Retriever(BaseRetriever):

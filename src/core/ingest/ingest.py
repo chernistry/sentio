@@ -11,7 +11,7 @@ from typing import Any
 from src.core.chunking import ChunkingStrategy, TextChunker
 from src.core.embeddings import BaseEmbedder, get_embedder
 from src.core.models.document import Document
-from src.core.vector_store import get_vector_store
+from src.core.vector_store import get_async_vector_store, get_vector_store
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -97,9 +97,9 @@ class DocumentIngestor:
             self.embedder = get_embedder(name=self.embedder_name)
             logger.info(f"✓ Embedding model initialized: {self.embedder_name}")
 
-            # Initialize vector store
+            # Initialize async vector store
             vector_size = self.embedder.dimension
-            self.vector_store = get_vector_store(
+            self.vector_store = await get_async_vector_store(
                 name=self.vector_store_name,
                 collection_name=self.collection_name,
                 vector_size=vector_size,
@@ -108,7 +108,7 @@ class DocumentIngestor:
 
             # Verify health
             if hasattr(self.vector_store, "health_check"):
-                is_healthy = self.vector_store.health_check()
+                is_healthy = await self.vector_store.health_check()
                 if is_healthy:
                     logger.info("✓ Vector store connection verified")
                 else:
@@ -116,6 +116,50 @@ class DocumentIngestor:
 
         except Exception as e:
             logger.error(f"Failed to initialize components: {e}")
+            raise
+
+    async def initialize_with_shared_components(self, embedder: Any, vector_store: Any) -> None:
+        """Initialize with shared components to avoid creating new connections.
+
+        This method uses pre-initialized shared components instead of creating new ones.
+        This helps avoid creating multiple database connections and improves startup time.
+
+        Args:
+            embedder: Pre-initialized embedder instance
+            vector_store: Pre-initialized async vector store instance
+
+        Raises:
+            Exception: If initialization fails.
+        """
+        try:
+            logger.info("Initializing document ingestor with shared components...")
+
+            # Initialize chunker
+            self.chunker = TextChunker(
+                strategy=ChunkingStrategy(self.chunking_strategy),
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+            )
+            logger.info("✓ Text chunker initialized")
+
+            # Use shared embedder
+            self.embedder = embedder
+            logger.info(f"✓ Embedding model initialized: {self.embedder_name}")
+
+            # Use shared async vector store
+            self.vector_store = vector_store
+            logger.info(f"✓ Vector store initialized: {self.vector_store_name}")
+
+            # Verify health
+            if hasattr(self.vector_store, "health_check"):
+                is_healthy = await self.vector_store.health_check()
+                if is_healthy:
+                    logger.info("✓ Vector store connection verified")
+                else:
+                    logger.warning("⚠ Vector store connection check failed")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize components with shared instances: {e}")
             raise
 
     def _read_file_content(self, file_path: Path) -> str:
@@ -296,39 +340,38 @@ class DocumentIngestor:
         logger.info(f"Storing {len(chunks)} chunks in vector database")
 
         try:
-            # Prepare points for insertion
-            points = []
+            # Prepare data for async vector store
+            texts = []
+            chunk_embeddings = []
+            metadatas = []
+            ids = []
+            
             for chunk in chunks:
                 # Skip if no embedding for this chunk
                 if chunk.id not in embeddings:
                     logger.warning(f"No embedding found for chunk {chunk.id}, skipping")
                     continue
 
-                # Create point
-                point = {
-                    "id": chunk.id,
-                    "vector": embeddings[chunk.id],
-                    "payload": {
-                        "text": chunk.text,
-                        **chunk.metadata,
-                    }
-                }
-                points.append(point)
+                texts.append(chunk.text)
+                chunk_embeddings.append(embeddings[chunk.id])
+                metadatas.append(chunk.metadata)
+                ids.append(chunk.id)
 
-            # Store in vector database
-            if hasattr(self.vector_store, "_client"):
-                # Direct access to Qdrant client
-                self.vector_store._client.upsert(
-                    collection_name=self.collection_name,
-                    points=points,
+            # Store using async vector store method
+            if hasattr(self.vector_store, "add_embeddings"):
+                await self.vector_store.add_embeddings(
+                    texts=texts,
+                    embeddings=chunk_embeddings,
+                    metadatas=metadatas,
+                    ids=ids,
                 )
             else:
-                # Generic approach (may need adaptation for other vector stores)
+                # Fallback for other vector stores
                 raise NotImplementedError(
-                    f"Storage method not implemented for {self.vector_store_name}"
+                    f"Async storage method not implemented for {self.vector_store_name}"
                 )
 
-            logger.info(f"✓ Stored {len(points)} points in vector database")
+            logger.info(f"✓ Stored {len(texts)} chunks in vector database")
 
         except Exception as e:
             logger.error(f"Error storing chunks in vector database: {e}")

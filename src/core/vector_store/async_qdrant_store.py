@@ -40,8 +40,8 @@ class ConnectionConfig:
     timeout: float = 30.0
     max_retries: int = 3
     retry_delay: float = 1.0
-    pool_size: int = 10
-    max_pool_size: int = 20
+    pool_size: int = 2
+    max_pool_size: int = 4
     pool_recycle_seconds: int = 3600
     health_check_interval: float = 30.0
 
@@ -283,7 +283,7 @@ class AsyncQdrantStore(VectorStore):
     content_payload_key: str = "content"
     metadata_payload_key: str = "metadata"
     batch_size: int = 100
-    max_concurrent_requests: int = 10
+    max_concurrent_requests: int = 4
 
     # Connection configuration
     connection_config: ConnectionConfig = field(default_factory=ConnectionConfig)

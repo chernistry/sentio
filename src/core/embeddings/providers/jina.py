@@ -21,11 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Known dimensions for Jina models
 KNOWN_MODEL_DIMENSIONS = {
-    "jina-embeddings-v3": 768,
-    "jina-embeddings-v3": 512,
-    "jina-embeddings-v3": 768,
-    "jina-embeddings-v3": 512,
     "jina-embeddings-v3": 1024,
+    "jina-embeddings-v2": 768,
+    "jina-embeddings-v1": 512,
 }
 
 
@@ -55,6 +53,7 @@ class JinaEmbedder(BaseEmbedder):
             allow_empty_api_key: Allow missing API key (offline/dev mode).
             **kwargs: Additional arguments passed to BaseEmbedder.
         """
+        logger.info("Initializing JinaEmbedder...")
         self.api_key = api_key or settings.embedding_model_api_key
         if not self.api_key and not allow_empty_api_key:
             raise EmbeddingError("Jina API key not provided")
@@ -64,6 +63,7 @@ class JinaEmbedder(BaseEmbedder):
         self.batch_size = batch_size
         self.allow_empty_api_key = allow_empty_api_key
 
+        logger.info("Creating ResilientClient...")
         # Initialize resilient client for API calls
         self.resilient_client = ResilientClient(
             name="jina_embeddings",
@@ -92,10 +92,12 @@ class JinaEmbedder(BaseEmbedder):
             timeout_seconds=timeout,
         )
 
+        logger.info("ResilientClient created, calling super().__init__...")
         super().__init__(
             model_name=model_name,
             **kwargs,
         )
+        logger.info("JinaEmbedder initialization complete")
 
     def _get_embedding_dimension(self) -> int:
         """Determine embedding dimension via known map or runtime probe.
@@ -114,10 +116,10 @@ class JinaEmbedder(BaseEmbedder):
             )
             return KNOWN_MODEL_DIMENSIONS[self.model_name]
 
-        logger.warning("Unknown dimension for model %s; probing", self.model_name)
-        loop = asyncio.get_event_loop()
-        test_embedding = loop.run_until_complete(self.embed_async_single("test"))
-        return len(test_embedding)
+        # For unknown models, return a default dimension to avoid async calls during init
+        # The actual dimension will be determined during the first embedding call
+        logger.warning("Unknown dimension for model %s; using default 1024", self.model_name)
+        return 1024
 
     @_retry(3)
     async def _execute_async_request(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
