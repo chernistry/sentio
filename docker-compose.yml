@@ -11,6 +11,8 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-your-api-key}
     volumes:
       - ./src:/app/src
+      - ./.fallback_cache:/app/.fallback_cache
+    working_dir: /app
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -18,3 +20,17 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped 
+  streamlit:
+    image: python:3.12-slim
+    container_name: sentio-ui
+    working_dir: /app
+    volumes:
+      - ./src:/app/src
+      - ./requirements.txt:/app/requirements.txt
+    ports:
+      - "8502:8501"
+    environment:
+      - SENTIO_BACKEND_URL=http://sentio-api:8000
+    command: bash -c "pip install -r /app/requirements.txt && pip install streamlit PyPDF2 && streamlit run src/ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"
+    depends_on:
+      - api 

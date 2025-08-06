@@ -530,10 +530,17 @@ async def clear_collection(
 
 @app.get("/info")
 async def system_info() -> dict[str, Any]:
-    """Get system information with performance metrics.
-    """
-    resource_summary = resource_monitor.get_resource_summary()
-    resource_health = resource_monitor.check_resource_health()
+    """Get system information with performance metrics."""
+    try:
+        resource_summary = resource_monitor.get_resource_summary()
+    except Exception as e:
+        logger.error(f"resource_monitor.get_resource_summary() failed: {e}")
+        resource_summary = {}
+    try:
+        resource_health = resource_monitor.check_resource_health()
+    except Exception as e:
+        logger.error(f"resource_monitor.check_resource_health() failed: {e}")
+        resource_health = {}
 
     return {
         "name": "Sentio LangGraph RAG System",

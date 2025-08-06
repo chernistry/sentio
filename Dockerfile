@@ -1,51 +1,25 @@
-FROM python:3.12-slim as builder
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# Set environment variables for build
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    POETRY_NO_INTERACTION=1 \
-    POETRY_VENV_IN_PROJECT=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+    PYTHONPATH=/app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Poetry with updated version
-RUN pip install --no-cache-dir poetry==1.8.4
-
-# Copy poetry files
-COPY pyproject.toml poetry.lock* ./
-
-# Install dependencies
-RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
-
-# Production stage
-FROM python:3.12-slim as runtime
-
-WORKDIR /app
-
-# Set production environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
-    PATH="/app/.venv/bin:$PATH"
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
-
-# Copy virtual environment from builder
-COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/
@@ -61,5 +35,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose the API port
 EXPOSE 8000
 
-# Run FastAPI with Uvicorn (fixed module path)
+# Run FastAPI with Uvicorn
 CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"] 
