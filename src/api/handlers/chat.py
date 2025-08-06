@@ -157,15 +157,20 @@ class ChatHandler:
                 response_text = result.get("response", "")
                 documents = result.get("selected_documents", [])
 
+                logger.info(f"Retrieved {len(documents)} documents from RAG pipeline")
+                logger.info(f"Response text: {response_text[:200]}...")
+
                 # Prepare sources
                 sources = []
-                for doc in documents:
+                for i, doc in enumerate(documents):
+                    logger.info(f"Document {i}: text='{doc.text[:100]}...', metadata={doc.metadata}")
                     sources.append({
                         "text": doc.text,
                         "content": doc.text,  # Add content field for API compatibility
                         "source": doc.metadata.get("source", "unknown"),
                         "score": float(doc.metadata.get("score", 0.0)),
                         "metadata": doc.metadata,
+                        "debug_text_length": len(doc.text),  # Debug info
                     })
 
                 processing_time = time.time() - request_start

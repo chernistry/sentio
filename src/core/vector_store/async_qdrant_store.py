@@ -496,11 +496,21 @@ class AsyncQdrantStore(VectorStore):
             results = await self._circuit_breaker.call(_search)
 
         documents = []
-        for result in results:
+        for i, result in enumerate(results):
             payload = result.payload
             text = payload.get(self.content_payload_key, "")
             metadata = payload.get(self.metadata_payload_key, {})
-            documents.append((Document(page_content=text, metadata=metadata), result.score))
+            
+            # If text is empty but content exists in metadata, use it
+            if not text and "content" in metadata:
+                text = metadata["content"]
+                logger.info(f"Vector store - Result {i}: Using content from metadata: '{text[:100]}...'")
+            
+            # Create document with correct text
+            doc = Document(page_content=text, metadata=metadata)
+            documents.append((doc, result.score))
+            
+            logger.info(f"Vector store - Result {i}: Final document text='{doc.text[:100]}...'")
 
         return documents
 

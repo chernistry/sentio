@@ -228,6 +228,9 @@ def create_generator_node(
             return state
 
         logger.info("Generating response for query: %s", state.query)
+        logger.info("Selected documents: %d", len(state.selected_documents))
+        for i, doc in enumerate(state.selected_documents):
+            logger.info(f"Selected doc {i}: text='{doc.text[:100]}...'")
 
         try:
             # Use our LLM generator

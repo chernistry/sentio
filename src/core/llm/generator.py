@@ -198,19 +198,12 @@ class LLMGenerator:
             Formatted context string
         """
         if not documents:
-            return ""
-
+            return ''
         context_parts = []
         for i, doc in enumerate(documents):
-            # Extract metadata for citation
-            metadata = doc.metadata or {}
-            source = metadata.get("source", f"Document {i+1}")
-            title = metadata.get("title", source)
-
-            # Format document
-            context_parts.append(f"Document {i+1} [{title}]:\n{doc.text}")
-
-        return "\n\n".join(context_parts)
+            source = doc.metadata.get('source', f'Document {i+1}')
+            context_parts.append(f'Source: {source}\nContent: {doc.text}')
+        return '\n\n'.join(context_parts) + '\n\nUse this context to answer accurately, focusing on key facts.'
 
     def _get_temperature_for_mode(self) -> float:
         """Get temperature based on generation mode.
