@@ -6,9 +6,12 @@ This module provides a user interface for the Sentio RAG system, allowing users 
 - View evaluation metrics
 """
 
+import logging
 import os
 import re
+import socket
 import uuid
+from urllib.parse import urlparse
 
 import requests
 import streamlit as st
@@ -17,7 +20,24 @@ from PyPDF2 import PdfReader
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-BACKEND_URL = os.getenv("SENTIO_BACKEND_URL", "http://localhost:8000")
+logger = logging.getLogger(__name__)
+
+
+def _resolve_backend_url() -> str:
+    """Resolve backend URL with localhost fallback."""
+    url = os.getenv("SENTIO_BACKEND_URL", "http://localhost:8000")
+    parsed = urlparse(url)
+    host = parsed.hostname or "localhost"
+    try:
+        socket.gethostbyname(host)
+    except Exception:
+        logger.warning("Backend host %s unreachable, falling back to localhost", host)
+        url = "http://localhost:8000"
+    return url
+
+
+BACKEND_URL = _resolve_backend_url()
+logger.info("Using backend %s", BACKEND_URL)
 MAX_CHUNK_SIZE = 45000  # A bit less than the API limit for safety
 MAX_TOKENS_PER_DOC = 8000  # Approximate token limit for embedding API
 
@@ -101,6 +121,7 @@ def clear_collection() -> dict:
         response.raise_for_status()
         return response.json()
     except Exception as e:
+        logger.error("Failed to clear collection", exc_info=True)
         st.error(f"Failed to clear collection: {e}")
         return {"status": "error", "message": str(e)}
 
@@ -135,6 +156,7 @@ def embed_document(doc_id: str, content: str, metadata: dict) -> dict:
                 response.raise_for_status()
                 results.append(response.json())
             except Exception as e:
+                logger.error("Chunk %s failed to embed", i + 1, exc_info=True)
                 st.error(f"Failed to embed chunk {i+1}/{len(chunks)}: {e}")
                 continue
         return {"status": "success", "chunks": len(chunks), "successful": len(results)}
@@ -152,6 +174,7 @@ def embed_document(doc_id: str, content: str, metadata: dict) -> dict:
         response.raise_for_status()
         return response.json()
     except Exception as e:
+        logger.error("Document ingestion failed", exc_info=True)
         st.error(f"Failed to embed document: {e}")
         return {"status": "error", "message": str(e)}
 
@@ -178,10 +201,11 @@ def get_system_info() -> dict:
     """Get system information from the backend."""
     try:
         url = f"{BACKEND_URL}/info"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
         return response.json()
     except Exception as e:
+        logger.warning("System info request failed", exc_info=True)
         st.warning(f"Could not fetch system information: {e}")
         return {}
 
@@ -190,10 +214,11 @@ def check_health() -> dict:
     """Check system health."""
     try:
         url = f"{BACKEND_URL}/health"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=3)
         response.raise_for_status()
         return response.json()
     except Exception as e:
+        logger.warning("Health check failed", exc_info=True)
         st.warning(f"Could not check system health: {e}")
         return {"status": "unknown", "services": {}}
 
@@ -203,6 +228,7 @@ def check_health() -> dict:
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.title("🧠 Sentio RAG")
+    st.caption(f"Backend: {BACKEND_URL}")
 
     # System information
     st.subheader("System Info")

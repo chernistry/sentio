@@ -359,6 +359,7 @@ class DocumentIngestor:
 
             # Store using async vector store method
             if hasattr(self.vector_store, "add_embeddings"):
+                logger.debug("Storing chunk IDs: %s", ids)
                 await self.vector_store.add_embeddings(
                     texts=texts,
                     embeddings=chunk_embeddings,
