@@ -160,10 +160,16 @@ class JinaEmbedder(BaseEmbedder):
 
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(self.BASE_URL, json=payload, headers=headers)
+        # Use the client if it exists (for testing), otherwise create a new one
+        if hasattr(self, '_client') and self._client:
+            response = await self._client.post(self.BASE_URL, json=payload, headers=headers)
             response.raise_for_status()
             return response.json()["data"]
+        else:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(self.BASE_URL, json=payload, headers=headers)
+                response.raise_for_status()
+                return response.json()["data"]
 
     async def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Get embeddings for multiple texts via a single batched API call.

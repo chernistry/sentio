@@ -45,6 +45,7 @@ class JinaReranker(Reranker):
     def __init__(
         self,
         model_name: str | None = None,
+        model: str | None = None,  # Alternative parameter name for compatibility
         api_key: str | None = None,
         timeout: int | None = None,
         max_retries: int = 3,
@@ -54,6 +55,7 @@ class JinaReranker(Reranker):
 
         Args:
             model_name: Custom model name. If None, uses environment variable or default.
+            model: Alternative parameter name for model_name (for compatibility).
             api_key: Jina API key. If None, uses environment variable.
             timeout: Request timeout in seconds.
             max_retries: Maximum number of retry attempts.
@@ -62,7 +64,8 @@ class JinaReranker(Reranker):
         Raises:
             ValueError: If no API key is provided or found in environment.
         """
-        self.model_name: str = model_name or settings.reranker_model
+        # Support both model_name and model parameters
+        self.model_name: str = model_name or model or settings.reranker_model
         logger.info("Using Jina reranker model: %s", self.model_name)
 
         raw_key: str = api_key or settings.embedding_model_api_key

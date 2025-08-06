@@ -65,17 +65,23 @@ class HybridRetriever(BaseRetriever):
     def __init__(
         self,
         dense_retriever: DenseRetriever,
+        sparse_retriever: BaseRetriever | None = None,
         corpus_docs: list[Document] | None = None,
         rrf_k: int = 60,
         scorer_plugins: list[ScorerPlugin] | None = None,
         retriever_plugins: list[HybridRetrieverPlugin] | None = None,
         use_pyserini: bool = False,
-        sparse_retriever: BaseRetriever | None = None,
+        fusion_method: str = "rrf",  # Support different fusion methods
+        dense_weight: float = 0.5,  # Weight for dense retriever
+        sparse_weight: float = 0.5,  # Weight for sparse retriever
     ) -> None:
         self._dense = dense_retriever
         self._rrf_k = rrf_k
         self._scorer_plugins = scorer_plugins or []
         self._retriever_plugins = retriever_plugins or []
+        self.fusion_method = fusion_method
+        self.dense_weight = dense_weight
+        self.sparse_weight = sparse_weight
 
         # Cache collection support (for web results)
         self._has_cache_collection = False

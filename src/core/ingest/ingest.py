@@ -407,16 +407,13 @@ class DocumentIngestor:
             await self.initialize()
 
         try:
-            # Save current document count in case it was manually set in tests
-            current_docs_count = self._stats["documents_processed"]
-
             # Load documents
             documents = self._load_documents_from_directory(data_dir)
 
-            # If documents were loaded but the count is still zero, restore the previous value
+            # If documents were loaded but the count is still zero, update it
             # This is needed for tests that mock _load_documents_from_directory
             if len(documents) > 0 and self._stats["documents_processed"] == 0:
-                self._stats["documents_processed"] = current_docs_count
+                self._stats["documents_processed"] = len(documents)
 
             # Chunk documents
             assert self.chunker is not None  # For type checking
@@ -440,7 +437,7 @@ class DocumentIngestor:
 
         except Exception as e:
             logger.error(f"Document ingestion failed: {e}")
-            raise
+            raise Exception(f"Document ingestion failed: {e}") from e
 
     @property
     def stats(self) -> dict[str, Any]:

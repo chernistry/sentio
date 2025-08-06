@@ -93,6 +93,198 @@ class QdrantStore(VectorStore):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    def search(self, query: str, search_type: str, **kwargs: Any) -> list[Document]:
+        """Search for documents using the specified search type.
+        
+        Args:
+            query: Text query to search for
+            search_type: Type of search (e.g., "similarity")
+            **kwargs: Additional search parameters
+            
+        Returns:
+            List of documents
+        """
+        if search_type == "similarity":
+            k = kwargs.get("k", 4)
+            filter_dict = kwargs.get("filter", None)
+            return self.similarity_search(query, k=k, filter=filter_dict, **kwargs)
+        else:
+            raise ValueError(f"Unsupported search type: {search_type}")
+
+    async def search_async(
+        self,
+        query: str,
+        search_type: str = "similarity",
+        query_vector: list[float] = None,
+        top_k: int = 4,
+        filter_dict: dict[str, Any] = None,
+        **kwargs: Any,
+    ) -> list[Document]:
+        """Search for similar documents.
+        
+        Args:
+            query: Text query (if query_vector not provided)
+            search_type: Type of search (similarity, etc.)
+            query_vector: Pre-computed query vector
+            top_k: Number of results to return
+            filter_dict: Filter by metadata
+            **kwargs: Additional arguments
+            
+        Returns:
+            List of similar documents
+        """
+        if query_vector is None:
+            if self.embedding is None:
+                raise ValueError("Embeddings must be provided for text search.")
+            query_vector = self.embedding.embed_query(query)
+            
+        results = self._client.search(
+            collection_name=self.collection_name,
+            query_vector=query_vector,
+            limit=top_k,
+            query_filter=self._convert_filter(filter_dict) if filter_dict else None,
+        )
+
+        documents = []
+        for result in results:
+            payload = result.payload
+            text = payload.get(self.content_payload_key, "")
+            metadata = payload.get(self.metadata_payload_key, {})
+            
+            # If text is empty but content exists in metadata, use it
+            if not text and "content" in metadata:
+                text = metadata["content"]
+                
+            documents.append(Document(text=text, metadata=metadata))
+
+        return documents
+
+    async def add_documents(
+        self,
+        documents: list[Document],
+        embeddings: list[list[float]] = None,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Add documents to the vector store.
+        
+        Args:
+            documents: List of documents to add
+            embeddings: Pre-computed embeddings (optional)
+            **kwargs: Additional arguments
+            
+        Returns:
+            List of document IDs
+        """
+        if embeddings is not None and len(documents) != len(embeddings):
+            raise ValueError("Number of documents and embeddings must match")
+            
+        texts = [doc.text for doc in documents]
+        metadatas = [doc.metadata for doc in documents]
+        ids = [doc.id for doc in documents]
+        
+        if embeddings is None:
+            return self.add_texts(texts=texts, metadatas=metadatas, ids=ids, **kwargs)
+        else:
+            return self.add_embeddings(
+                texts=texts,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                ids=ids,
+                **kwargs
+            )
+
+    async def delete_documents(self, document_ids: list[str]) -> bool:
+        """Delete documents by ID.
+        
+        Args:
+            document_ids: List of document IDs to delete
+            
+        Returns:
+            True if successful
+        """
+        result = self.delete(document_ids)
+        return result
+
+    async def get_collection_info(self) -> dict[str, Any]:
+        """Get collection information.
+        
+        Returns:
+            Collection information
+        """
+        collection_info = self._client.get_collection(self.collection_name)
+        return {
+            "name": self.collection_name,
+            "vector_size": collection_info.config.params.vectors.size,
+            "distance": collection_info.config.params.vectors.distance.name,
+            "points_count": collection_info.points_count,
+        }
+
+    async def health_check(self) -> bool:
+        """Check if the vector store is healthy.
+        
+        Returns:
+            True if healthy, False otherwise
+        """
+        try:
+            self._client.get_collections()
+            return True
+        except Exception as exc:
+            logger.warning("Qdrant health-check failed: %s", exc)
+            return False
+
+    async def create_collection(
+        self,
+        collection_name: str,
+        vector_size: int,
+        distance: str = "Cosine"
+    ) -> None:
+        """Create a new collection.
+        
+        Args:
+            collection_name: Name of the collection
+            vector_size: Size of vectors
+            distance: Distance metric
+        """
+        self._client.create_collection(
+            collection_name=collection_name,
+            vectors_config=rest.VectorParams(
+                size=vector_size,
+                distance=rest.Distance[distance.upper()],
+            ),
+        )
+
+    async def delete_collection(self, collection_name: str) -> None:
+        """Delete a collection.
+        
+        Args:
+            collection_name: Name of the collection to delete
+        """
+        self._client.delete_collection(collection_name)
+
+    async def collection_exists(self, collection_name: str) -> bool:
+        """Check if a collection exists.
+        
+        Args:
+            collection_name: Name of the collection
+            
+        Returns:
+            True if collection exists
+        """
+        try:
+            self._client.get_collection(collection_name)
+            return True
+        except Exception:
+            return False
+
+    async def get_document_count(self) -> int:
+        """Get the number of documents in the collection.
+        
+        Returns:
+            Number of documents
+        """
+        collection_info = self._client.get_collection(self.collection_name)
+        return collection_info.points_count
+
     def health_check(self) -> bool:
         """Return *True* when Qdrant instance is reachable."""
         try:

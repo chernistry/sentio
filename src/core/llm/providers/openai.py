@@ -5,13 +5,14 @@ import random
 import string
 from collections.abc import AsyncGenerator
 from functools import lru_cache
-from typing import Any
+from typing import Any, List
 
 import httpx
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from src.core.llm.providers import register_provider
 from src.core.llm.providers.base import BaseLLMProvider
+from src.core.models.document import Document
 from src.utils.settings import settings
 
 # Optional dependency – generates realistic User-Agent strings for header stealthing.
@@ -131,6 +132,123 @@ class OpenAIProvider(BaseLLMProvider):
                 await resp.aclose()
 
         return _stream_generator()
+
+    async def generate_response(
+        self,
+        query: str,
+        documents: List[Document],
+        history: List[dict] = None
+    ) -> str:
+        """Generate a response using the OpenAI API.
+        
+        Args:
+            query: The user's query
+            documents: List of relevant documents
+            history: Conversation history
+            
+        Returns:
+            Generated response text
+        """
+        if history is None:
+            history = []
+            
+        messages = self._build_messages(query, documents, history)
+        
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": 1024,
+            "temperature": 0.7
+        }
+        
+        response = await self.chat_completion(payload)
+        
+        if isinstance(response, dict):
+            return response["choices"][0]["message"]["content"]
+        else:
+            # Handle streaming response
+            content = ""
+            async for chunk in response:
+                content += chunk
+            return content
+
+    def _build_messages(
+        self,
+        query: str,
+        documents: List[Document],
+        history: List[dict]
+    ) -> List[dict]:
+        """Build messages for the chat completion.
+        
+        Args:
+            query: The user's query
+            documents: List of relevant documents
+            history: Conversation history
+            
+        Returns:
+            List of messages for the API
+        """
+        messages = []
+        
+        # Add system message with context
+        if documents:
+            context = "\n\n".join([doc.text for doc in documents])
+            system_message = f"""You are a helpful assistant. Use the following context to answer the user's question:
+
+Context:
+{context}
+
+Please provide a helpful and accurate response based on the context provided."""
+            messages.append({"role": "system", "content": system_message})
+        else:
+            messages.append({"role": "system", "content": "You are a helpful assistant."})
+        
+        # Add conversation history
+        messages.extend(history)
+        
+        # Add current query
+        messages.append({"role": "user", "content": query})
+        
+        return messages
+
+    async def health_check(self) -> bool:
+        """Check if the OpenAI API is healthy.
+        
+        Returns:
+            True if healthy, False otherwise
+        """
+        try:
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": "test"}],
+                "max_tokens": 1
+            }
+            
+            response = await self.chat_completion(payload)
+            return isinstance(response, dict) and "choices" in response
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return False
+
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens in text.
+        
+        Args:
+            text: Text to count tokens for
+            
+        Returns:
+            Approximate token count
+        """
+        try:
+            import tiktoken
+            encoder = tiktoken.encoding_for_model(self.model)
+            return len(encoder.encode(text))
+        except ImportError:
+            # Fallback to rough estimation
+            return len(text.split()) * 1.3  # Rough approximation
+        except Exception:
+            # Fallback to word count
+            return len(text.split())
 
     async def close(self) -> None:
         """Close the HTTP client."""

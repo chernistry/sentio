@@ -145,20 +145,20 @@ class CacheManager:
         success = True
 
         if self.backend == CacheBackend.MEMORY:
-            return self.memory_cache.set(key, value, ttl)
+            return self.memory_cache.set(key, value, ttl=ttl)
 
         if self.backend == CacheBackend.REDIS:
             if self.redis_cache:
                 ttl_int = int(ttl) if ttl else None
                 return await self.redis_cache.set(key, value, ttl_int)
             if self.enable_fallback:
-                return self.memory_cache.set(key, value, ttl)
+                return self.memory_cache.set(key, value, ttl=ttl)
             return False
 
         if self.backend == CacheBackend.MULTI_TIER:
             # Write to both tiers unless specific tier requested
             if tier != "redis":
-                success &= self.memory_cache.set(key, value, ttl)
+                success &= self.memory_cache.set(key, value, ttl=ttl)
 
             if tier != "memory" and self.redis_cache:
                 try:
