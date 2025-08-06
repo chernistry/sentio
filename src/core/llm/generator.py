@@ -199,10 +199,26 @@ class LLMGenerator:
         """
         if not documents:
             return ''
+        
+        # Add logging to verify document structure
+        for i, doc in enumerate(documents):
+            logger.info(f"Document {i}: text='{doc.text[:100] if doc.text else ''}...', metadata_content='{doc.metadata.get('content', '')[:100] if doc.metadata.get('content') else ''}...'")
+        
         context_parts = []
         for i, doc in enumerate(documents):
+            # Get content from either text field or metadata.content
+            content = doc.text or doc.metadata.get('content', '')
+            if not content:
+                logger.warning(f"Document {i} has no content in either text or metadata.content")
+                continue
+                
             source = doc.metadata.get('source', f'Document {i+1}')
-            context_parts.append(f'Source: {source}\nContent: {doc.text}')
+            context_parts.append(f'Source: {source}\nContent: {content}')
+        
+        if not context_parts:
+            logger.warning("No content available in any retrieved documents")
+            return 'No content available in retrieved documents.'
+            
         return '\n\n'.join(context_parts) + '\n\nUse this context to answer accurately, focusing on key facts.'
 
     def _get_temperature_for_mode(self) -> float:
