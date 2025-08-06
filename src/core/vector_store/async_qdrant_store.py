@@ -17,9 +17,10 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.documents import Document
+from langchain_core.documents import Document as LangChainDocument
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
+from src.core.models.document import Document
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as rest
 
@@ -507,7 +508,7 @@ class AsyncQdrantStore(VectorStore):
                 logger.info(f"Vector store - Result {i}: Using content from metadata: '{text[:100]}...'")
             
             # Create document with correct text
-            doc = Document(page_content=text, metadata=metadata)
+            doc = Document(text=text, metadata=metadata)
             documents.append((doc, result.score))
             
             logger.info(f"Vector store - Result {i}: Final document text='{doc.text[:100]}...'")

@@ -15,9 +15,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.documents import Document
+from langchain_core.documents import Document as LangChainDocument
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
+from src.core.models.document import Document
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
 
@@ -221,7 +222,13 @@ class QdrantStore(VectorStore):
             payload = result.payload
             text = payload.get(self.content_payload_key, "")
             metadata = payload.get(self.metadata_payload_key, {})
-            documents.append((Document(page_content=text, metadata=metadata), result.score))
+            
+            # If text is empty but content exists in metadata, use it
+            if not text and "content" in metadata:
+                text = metadata["content"]
+                logger.info(f"Vector store - Result: Using content from metadata: '{text[:100]}...'")
+            
+            documents.append((Document(text=text, metadata=metadata), result.score))
 
         return documents
 
