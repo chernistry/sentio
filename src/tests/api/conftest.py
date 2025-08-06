@@ -1,7 +1,7 @@
 """Test configuration and fixtures for API tests.
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -92,9 +92,17 @@ async def mock_health_handler():
 
 async def mock_ingestor():
     """Mock document ingestor."""
+    from src.core.models.document import Document
     ingestor = AsyncMock()
-    ingestor.chunker = AsyncMock()
-    ingestor._generate_embeddings.return_value = {"test-id": [0.1, 0.2, 0.3]}
+    
+    # Mock chunker that returns actual chunks (synchronous method)
+    mock_chunker = MagicMock()  # Not AsyncMock since split is sync
+    mock_chunker.split.return_value = [
+        Document(text="Test chunk", metadata={"source": "test"}, id="chunk-1")
+    ]
+    ingestor.chunker = mock_chunker
+    
+    ingestor._generate_embeddings.return_value = {"chunk-1": [0.1, 0.2, 0.3]}
     ingestor._store_chunks_with_embeddings = AsyncMock()
     return ingestor
 
