@@ -115,15 +115,15 @@ class ChatHandler:
         logger.info(f"Processing chat request {query_id}: {question[:100]}...")
 
         try:
-            # Check cache first
-            cache_params = {"top_k": top_k, "temperature": temperature}
-            cached_result = await self._cache_manager.get_query_cache(question, cache_params)
+            # Check cache first - DISABLED FOR DEBUGGING
+            # cache_params = {"top_k": top_k, "temperature": temperature}
+            # cached_result = await self._cache_manager.get_query_cache(question, cache_params)
 
-            if cached_result:
-                logger.info(f"Cache hit for query {query_id}")
-                cached_result["metadata"]["from_cache"] = True
-                cached_result["metadata"]["query_id"] = query_id
-                return cached_result
+            # if cached_result:
+            #     logger.info(f"Cache hit for query {query_id}")
+            #     cached_result["metadata"]["from_cache"] = True
+            #     cached_result["metadata"]["query_id"] = query_id
+            #     return cached_result
 
             # Ensure graph is initialized
             await self._ensure_initialized()
@@ -188,11 +188,11 @@ class ChatHandler:
                     }
                 }
 
-                # Cache in both fallback manager and main cache
-                fallback_manager.cache_response(cache_key, response_data, ttl_seconds=1800)
-                await self._cache_manager.set_query_cache(
-                    question, cache_params, response_data, ttl=1800
-                )
+                # Cache in both fallback manager and main cache - DISABLED FOR DEBUGGING
+                # fallback_manager.cache_response(cache_key, response_data, ttl_seconds=1800)
+                # await self._cache_manager.set_query_cache(
+                #     question, cache_params, response_data, ttl=1800
+                # )
 
                 logger.info(
                     f"Chat request {query_id} completed successfully in {processing_time:.2f}s"
