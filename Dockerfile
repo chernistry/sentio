@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
+# Create fallback cache directory with correct permissions
+RUN mkdir -p /app/.fallback_cache && chown appuser:appuser /app/.fallback_cache
+
 # Copy application code
 COPY --chown=appuser:appuser src/ ./src/
 COPY --chown=appuser:appuser README.md ./

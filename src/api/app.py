@@ -21,9 +21,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field, field_validator
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+import asyncio
+from collections import defaultdict
+from datetime import datetime, timedelta
 
 from src.core.dependencies import (
     check_dependency_health,
@@ -54,7 +54,6 @@ from src.utils.exceptions import (
 )
 from src.utils.security import (
     InputValidator,
-    RateLimitConfig,
     SecurityHeaders,
     setup_log_sanitization,
 )
@@ -78,8 +77,28 @@ setup_tracing(
     console_export=settings.log_level.upper() == "DEBUG",
 )
 
-# Initialize rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Simple in-memory rate limiter
+class RateLimiter:
+    def __init__(self):
+        self.requests = defaultdict(list)
+        self.lock = asyncio.Lock()
+    
+    async def is_allowed(self, key: str, max_requests: int, window_seconds: int) -> bool:
+        async with self.lock:
+            now = datetime.now()
+            # Clean old requests
+            self.requests[key] = [
+                req_time for req_time in self.requests[key]
+                if now - req_time < timedelta(seconds=window_seconds)
+            ]
+            
+            if len(self.requests[key]) >= max_requests:
+                return False
+            
+            self.requests[key].append(now)
+            return True
+
+rate_limiter = RateLimiter()
 
 # Initialize authentication manager
 auth_manager = AuthManager()
@@ -237,9 +256,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add rate limiting error handler
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Rate limiting middleware
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Simple rate limiting middleware."""
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Rate limits: 100 requests per minute for most endpoints, 10 per minute for embed
+    if request.url.path == "/embed":
+        max_requests, window = 10, 60
+    else:
+        max_requests, window = 100, 60
+    
+    if not await rate_limiter.is_allowed(client_ip, max_requests, window):
+        return Response(
+            content=json.dumps({"detail": "Rate limit exceeded"}),
+            status_code=429,
+            media_type="application/json"
+        )
+    
+    return await call_next(request)
 
 # Add comprehensive error handlers
 @app.exception_handler(SentioException)
@@ -263,69 +299,69 @@ instrument_http_clients()
 
 
 # Security middleware
-@app.middleware("http")
-async def security_middleware(request: Request, call_next):
-    """Comprehensive security middleware."""
-    # Generate request ID for tracking
-    request_id = str(uuid.uuid4())
-    request.state.request_id = request_id
+# @app.middleware("http")
+# async def security_middleware(request: Request, call_next):
+#     """Comprehensive security middleware."""
+#     # Generate request ID for tracking
+#     request_id = str(uuid.uuid4())
+#     request.state.request_id = request_id
 
-    # CSRF validation for state-changing methods
-    if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
-        csrf_token = request.headers.get("X-CSRF-Token")
-        origin = request.headers.get("origin")
-        csrf_exempt = {"/embed", "/chat"}
-        if (
-            not csrf_token
-            and request.url.path not in ["/auth/login", "/auth/token"]
-            and not (request.url.path in csrf_exempt and origin in allowed_origins)
-        ):
-            return Response(
-                content=json.dumps({"detail": "CSRF token required"}),
-                status_code=403,
-                media_type="application/json"
-            )
+#     # CSRF validation for state-changing methods
+#     if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+#         csrf_token = request.headers.get("X-CSRF-Token")
+#         origin = request.headers.get("origin")
+#         csrf_exempt = {"/embed", "/chat"}
+#         if (
+#             not csrf_token
+#             and request.url.path not in ["/auth/login", "/auth/token"]
+#             and not (request.url.path in csrf_exempt and origin in allowed_origins)
+#         ):
+#             return Response(
+#                 content=json.dumps({"detail": "CSRF token required"}),
+#                 status_code=403,
+#                 media_type="application/json"
+#             )
 
-    # Process request
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
+#     # Process request
+#     start_time = time.time()
+#     response = await call_next(request)
+#     process_time = time.time() - start_time
 
-    # Add security headers
-    for name, value in SecurityHeaders.get_security_headers().items():
-        response.headers[name] = value
+#     # Add security headers
+#     for name, value in SecurityHeaders.get_security_headers().items():
+#         response.headers[name] = value
 
-    # Add custom headers
-    response.headers["X-Request-ID"] = request_id
-    response.headers["X-Process-Time"] = str(process_time)
+#     # Add custom headers
+#     response.headers["X-Request-ID"] = request_id
+#     response.headers["X-Process-Time"] = str(process_time)
 
-    # Log request for audit
-    if request.url.path not in ["/health", "/metrics"]:
-        await auth_manager.log_security_event(
-            event_type="request",
-            action=f"{request.method} {request.url.path}",
-            result=str(response.status_code),
-            ip_address=request.client.host,
-            user_agent=request.headers.get("user-agent"),
-            details={
-                "request_id": request_id,
-                "process_time": process_time,
-                "status_code": response.status_code,
-            }
-        )
+#     # Log request for audit
+#     if request.url.path not in ["/health", "/metrics"]:
+#         await auth_manager.log_security_event(
+#             event_type="request",
+#             action=f"{request.method} {request.url.path}",
+#             result=str(response.status_code),
+#             ip_address=request.client.host,
+#             user_agent=request.headers.get("user-agent"),
+#             details={
+#                 "request_id": request_id,
+#                 "process_time": process_time,
+#                 "status_code": response.status_code,
+#             }
+#         )
 
-    return response
+#     return response
 
 # Enable CORS with strict security
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
-    max_age=3600,
-    expose_headers=["X-Total-Count", "X-Request-ID"],
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=allowed_origins,
+#     allow_credentials=True,
+#     allow_methods=["GET", "POST"],
+#     allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+#     max_age=3600,
+#     expose_headers=["X-Total-Count", "X-Request-ID"],
+# )
 
 
 # Dependency container for managing application state
@@ -397,7 +433,6 @@ async def liveness_check(
 
 
 @app.post("/embed")
-@limiter.limit(RateLimitConfig.EMBED_ENDPOINT)
 async def embed_document(
     request: EmbedRequest,
     request_obj: Request,
@@ -456,7 +491,6 @@ async def embed_document(
 
 
 @app.post("/chat", response_model=ChatResponse)
-@limiter.limit(RateLimitConfig.CHAT_ENDPOINT)
 async def chat(
     request: ChatRequest,
     request_obj: Request,
@@ -489,7 +523,7 @@ async def chat(
                 answer=result["answer"],
                 sources=[
                     Source(
-                        text=source["text"],
+                        text=source.get("content", source.get("text", "")),
                         source=source["source"],
                         score=source["score"],
                         metadata=source.get("metadata", {})

@@ -162,6 +162,7 @@ class ChatHandler:
                 for doc in documents:
                     sources.append({
                         "text": doc.text,
+                        "content": doc.text,  # Add content field for API compatibility
                         "source": doc.metadata.get("source", "unknown"),
                         "score": float(doc.metadata.get("score", 0.0)),
                         "metadata": doc.metadata,

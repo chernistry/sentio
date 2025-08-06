@@ -22,8 +22,10 @@ class FallbackManager:
     """
 
     def __init__(self, cache_dir: Path | None = None):
-        self.cache_dir = cache_dir or Path(".fallback_cache")
-        self.cache_dir.mkdir(exist_ok=True)
+        # Use user cache dir by default for local/dev, /app/.fallback_cache for Docker
+        default_cache_dir = Path.home() / ".cache" / "langgraph_fallback"
+        self.cache_dir = cache_dir or default_cache_dir
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._cached_responses: dict[str, Any] = {}
         self._load_cache()
 

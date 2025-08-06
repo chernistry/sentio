@@ -452,9 +452,7 @@ class AsyncQdrantStore(VectorStore):
                         points=points,
                     )
 
-            await self._circuit_breaker.call(
-                self._retry_policy.call(_upsert)
-            )
+            await self._circuit_breaker.call(_upsert)
 
             return ids_out
 
@@ -495,9 +493,7 @@ class AsyncQdrantStore(VectorStore):
                         search_params=kwargs.get("search_params"),
                     )
 
-            results = await self._circuit_breaker.call(
-                self._retry_policy.call(_search)
-            )
+            results = await self._circuit_breaker.call(_search)
 
         documents = []
         for result in results:
@@ -532,9 +528,7 @@ class AsyncQdrantStore(VectorStore):
                         points_selector=rest.PointIdsList(points=ids),
                     )
 
-            await self._circuit_breaker.call(
-                self._retry_policy.call(_delete)
-            )
+            await self._circuit_breaker.call(_delete)
 
         return True
 

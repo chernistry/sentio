@@ -12,6 +12,7 @@ import re
 import socket
 import uuid
 from urllib.parse import urlparse
+from typing import Dict, Any
 
 import requests
 import streamlit as st
@@ -40,6 +41,16 @@ BACKEND_URL = _resolve_backend_url()
 logger.info("Using backend %s", BACKEND_URL)
 MAX_CHUNK_SIZE = 45000  # A bit less than the API limit for safety
 MAX_TOKENS_PER_DOC = 8000  # Approximate token limit for embedding API
+
+# Add health check after defining BACKEND_URL
+try:
+    import requests
+    response = requests.get(f"{BACKEND_URL}/health", timeout=5)
+    response.raise_for_status()
+    logger.info("Backend health check successful")
+except Exception as e:
+    logger.error(f"Backend health check failed: {e}")
+    # You can add a Streamlit warning here if needed, but for now, just log it
 
 # Page configuration
 st.set_page_config(
@@ -197,30 +208,7 @@ def ask_question(question: str, top_k: int = 3, temperature: float = 0.7) -> dic
         return {"status": "error", "message": str(e)}
 
 
-def get_system_info() -> dict:
-    """Get system information from the backend."""
-    try:
-        url = f"{BACKEND_URL}/info"
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        logger.warning("System info request failed", exc_info=True)
-        st.warning(f"Could not fetch system information: {e}")
-        return {}
 
-
-def check_health() -> dict:
-    """Check system health."""
-    try:
-        url = f"{BACKEND_URL}/health"
-        response = requests.get(url, timeout=3)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        logger.warning("Health check failed", exc_info=True)
-        st.warning(f"Could not check system health: {e}")
-        return {"status": "unknown", "services": {}}
 
 
 # -----------------------------------------------------------------------------
@@ -230,41 +218,8 @@ with st.sidebar:
     st.title("🧠 Sentio RAG")
     st.caption(f"Backend: {BACKEND_URL}")
 
-    # System information
-    st.subheader("System Info")
-    info = get_system_info()
-    health = check_health()
-
-    if info:
-        st.info(f"Version: {info.get('version', 'Unknown')}")
-
-        config = info.get("configuration", {})
-        st.write("Configuration:")
-        st.json(config, expanded=False)
-
-    if health:
-        st.subheader("Health Status")
-        status = health.get("status", "unknown")
-        status_color = {
-            "healthy": "green",
-            "degraded": "orange",
-            "unhealthy": "red",
-            "unknown": "gray"
-        }.get(status, "gray")
-
-        st.markdown(f"Status: :{status_color}[{status}]")
-
-        # Show services health
-        services = health.get("services", {})
-        if services:
-            for service, service_status in services.items():
-                service_color = {
-                    "healthy": "green",
-                    "unavailable": "gray",
-                    "unhealthy": "red",
-                    "unknown": "yellow"
-                }.get(service_status, "gray")
-                st.markdown(f"- {service}: :{service_color}[{service_status}]")
+    # Health check functionality has been moved to separate module
+    # To enable health checks, import and call: health_check.render_health_panel(BACKEND_URL)
 
 # -----------------------------------------------------------------------------
 # Main UI

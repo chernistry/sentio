@@ -1,44 +1,31 @@
-version: '3.8'
-
 services:
   api:
     build: .
-    container_name: sentio-api
+    container_name: api
     ports:
       - "8000:8000"
+    networks:
+      - sentio-net
+    volumes:
+      - ./.fallback_cache:/app/.fallback_cache
+    working_dir: /app
     environment:
       - QDRANT_URL=${QDRANT_URL:-https://your-qdrant-instance.cloud}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-your-api-key}
       - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000,http://sentio-ui:8501,http://localhost:8501
-    volumes:
-      - ./src:/app/src
-      - ./.fallback_cache:/app/.fallback_cache
-    working_dir: /app
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-    restart: unless-stopped 
-  streamlit:
-    image: python:3.12-slim
+
+  sentio-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
     container_name: sentio-ui
-    working_dir: /app
-    volumes:
-      - ./src:/app/src
-      - ./requirements.txt:/app/requirements.txt
     ports:
-      - "8502:8501"
+      - "8501:8501"
     environment:
-      - SENTIO_BACKEND_URL=http://sentio-api:8000
-    command: >
-      bash -c "apt-get update && apt-get install -y curl && \
-      pip install -r /app/requirements.txt && pip install streamlit PyPDF2 && \
-      streamlit run src/ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"
-    depends_on:
-      - api
+      - SENTIO_BACKEND_URL=http://api:8000
+    networks:
+      - sentio-net
 
 networks:
-  default:
+  sentio-net:
     driver: bridge
