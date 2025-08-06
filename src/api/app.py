@@ -88,6 +88,13 @@ auth_manager = AuthManager()
 security = HTTPBearer()
 
 
+# Allowed CORS origins including Streamlit UI
+allowed_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:8000,http://sentio-ui:8501,http://localhost:8501",
+).split(",")
+
+
 # Data Models
 class ChatRequest(BaseModel):
     """Chat request with comprehensive validation.
@@ -266,7 +273,13 @@ async def security_middleware(request: Request, call_next):
     # CSRF validation for state-changing methods
     if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
         csrf_token = request.headers.get("X-CSRF-Token")
-        if not csrf_token and request.url.path not in ["/auth/login", "/auth/token"]:
+        origin = request.headers.get("origin")
+        csrf_exempt = {"/embed", "/chat"}
+        if (
+            not csrf_token
+            and request.url.path not in ["/auth/login", "/auth/token"]
+            and not (request.url.path in csrf_exempt and origin in allowed_origins)
+        ):
             return Response(
                 content=json.dumps({"detail": "CSRF token required"}),
                 status_code=403,
@@ -304,7 +317,6 @@ async def security_middleware(request: Request, call_next):
     return response
 
 # Enable CORS with strict security
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -396,6 +408,8 @@ async def embed_document(
 ) -> dict[str, Any]:
     """Embed a document and store it in the vector database.
     """
+    request_id = getattr(request_obj.state, "request_id", "unknown")
+    logger.info("/embed called request_id=%s", request_id)
     try:
 
         doc_id = request.id or str(uuid.uuid4())
