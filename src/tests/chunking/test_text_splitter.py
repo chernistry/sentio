@@ -73,8 +73,9 @@ async def test_fixed_splitting(sample_doc: Document):
 async def test_empty_document():
     """Test that an empty document produces no chunks."""
     chunker = await TextChunker.create("recursive", 100, 20)
-    with pytest.raises(ValueError):
-        _ = Document(text="", metadata={"source": "empty.txt"})
+    empty_doc = Document(text="", metadata={"source": "empty.txt"})
+    chunks = chunker.split([empty_doc])
+    assert len(chunks) == 0
 
 @pytest.mark.asyncio
 async def test_stats_tracking(sample_doc: Document):

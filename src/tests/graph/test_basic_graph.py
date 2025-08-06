@@ -15,14 +15,15 @@ from src.core.models.document import Document
 
 def test_rag_state_initialization():
     """Test RAGState initialization."""
-    state = RAGState(query="test query")
-    assert state.query == "test query"
-    assert len(state.retrieved_documents) == 0
-    assert len(state.reranked_documents) == 0
-    assert len(state.selected_documents) == 0
-    assert state.response == ""
-    assert isinstance(state.metadata, dict)
-    assert isinstance(state.evaluation, dict)
+    from src.core.graph.state import create_initial_state
+    state = create_initial_state("test query")
+    assert state["query"] == "test query"
+    assert len(state["retrieved_documents"]) == 0
+    assert len(state["reranked_documents"]) == 0
+    assert len(state["selected_documents"]) == 0
+    assert state["response"] == ""
+    assert isinstance(state["metadata"], dict)
+    assert isinstance(state["evaluation"], dict)
 
 
 def test_basic_graph_creation():
@@ -105,17 +106,16 @@ async def test_graph_execution_flow():
 
 def test_rag_state_serialization():
     """Test RAGState can be serialized/deserialized."""
-    state = RAGState(
-        query="test query",
-        metadata={"test": "data"}
-    )
+    from src.core.graph.state import create_initial_state
+    state = create_initial_state("test query")
+    state["metadata"] = {"test": "data"}
 
     # Test basic serialization (dict conversion)
     state_dict = {
-        "query": state.query,
-        "metadata": state.metadata,
-        "response": state.response,
-        "retrieved_documents": state.retrieved_documents,
+        "query": state["query"],
+        "metadata": state["metadata"],
+        "response": state["response"],
+        "retrieved_documents": state["retrieved_documents"],
     }
 
     assert state_dict["query"] == "test query"

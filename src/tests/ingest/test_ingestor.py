@@ -98,6 +98,8 @@ def mock_vector_store():
     vector_store = MagicMock()
     vector_store._client = MagicMock()
     vector_store.health_check = MagicMock(return_value=True)
+    # Make add_embeddings async
+    vector_store.add_embeddings = AsyncMock()
     return vector_store
 
 
@@ -179,7 +181,7 @@ async def test_ingest_documents_pipeline(
     ingestor._load_documents_from_directory.assert_called_once()
     mock_chunker.split.assert_called_once_with(sample_documents)
     mock_embedder.embed_async_many.assert_called_once()
-    mock_vector_store._client.upsert.assert_called_once()
+    mock_vector_store.add_embeddings.assert_called_once()
 
     # Check stats
     assert stats["documents_processed"] == 2
