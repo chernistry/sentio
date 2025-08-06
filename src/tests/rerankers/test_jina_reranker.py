@@ -53,7 +53,7 @@ def jina_reranker(mock_httpx_client):
     with patch('httpx.AsyncClient', return_value=mock_httpx_client):
         reranker = JinaReranker(
             api_key="test-key",
-            model="jina-reranker-v2-base-multilingual"
+            model_name="jina-reranker-v2-base-multilingual"  # Use model_name not model
         )
         reranker._client = mock_httpx_client
         return reranker

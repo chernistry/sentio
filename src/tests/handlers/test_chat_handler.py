@@ -32,7 +32,11 @@ def mock_metrics():
 @pytest.fixture
 def chat_handler(mock_graph, mock_metrics):
     """Create ChatHandler instance with mocked dependencies."""
-    return ChatHandler(graph=mock_graph, metrics_collector=mock_metrics)
+    handler = ChatHandler()
+    # Mock the internal graph after initialization
+    handler._graph = mock_graph
+    handler._initialized = True
+    return handler
 
 
 @pytest.mark.asyncio

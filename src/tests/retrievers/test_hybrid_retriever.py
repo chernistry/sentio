@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from src.core.retrievers.hybrid import HybridRetriever
 from src.core.retrievers.dense import DenseRetriever
-from src.core.retrievers.sparse import SparseRetriever
+from src.core.retrievers.sparse import BM25Retriever
 from src.core.models.document import Document
 
 
@@ -30,7 +30,7 @@ def mock_dense_retriever():
 @pytest.fixture
 def mock_sparse_retriever():
     """Mock sparse retriever."""
-    retriever = AsyncMock(spec=SparseRetriever)
+    retriever = AsyncMock(spec=BM25Retriever)
     retriever.retrieve.return_value = [
         Document(
             id="sparse_1",
@@ -52,9 +52,7 @@ def hybrid_retriever(mock_dense_retriever, mock_sparse_retriever):
     retriever = HybridRetriever(
         dense_retriever=mock_dense_retriever,
         sparse_retriever=mock_sparse_retriever,
-        dense_weight=0.6,
-        sparse_weight=0.4,
-        fusion_method="rrf"  # Reciprocal Rank Fusion
+        rrf_k=60  # Use actual constructor parameter
     )
     return retriever
 

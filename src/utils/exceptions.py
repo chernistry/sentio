@@ -349,6 +349,15 @@ class ErrorHandler:
         if isinstance(error, SentioException):
             response_data = error.to_dict()
             status_code = error.status_code
+        elif isinstance(error, HTTPException):
+            # Handle FastAPI HTTPException
+            response_data = {
+                "error_code": f"HTTP_{error.status_code}",
+                "message": str(error.detail),
+                "status_code": error.status_code,
+                "details": {},
+            }
+            status_code = error.status_code
         else:
             # Handle unexpected errors
             response_data = {

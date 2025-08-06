@@ -19,7 +19,7 @@ def mock_dependencies():
 @pytest.fixture
 def health_handler(mock_dependencies):
     """Create HealthHandler instance with mocked dependencies."""
-    return HealthHandler(dependencies=mock_dependencies)
+    return HealthHandler()  # HealthHandler takes no constructor parameters
 
 
 @pytest.mark.asyncio
