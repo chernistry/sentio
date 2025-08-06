@@ -48,15 +48,55 @@ _mock_ingestor = AsyncMock()
 
 async def mock_chat_handler():
     """Mock chat handler."""
-    return _mock_chat_handler
+    handler = AsyncMock()
+    handler.process_chat_request.return_value = {
+        "answer": "This is a test answer",
+        "sources": [
+            {
+                "text": "Test source content",
+                "source": "test.pdf",
+                "score": 0.9,
+                "metadata": {}
+            }
+        ],
+        "metadata": {
+            "query_id": "test-123",
+            "processing_time": 0.5
+        }
+    }
+    return handler
 
 async def mock_health_handler():
     """Mock health handler."""
-    return _mock_health_handler
+    handler = AsyncMock()
+    handler.basic_health_check.return_value = {
+        "status": "healthy",
+        "timestamp": 1234567890.0,
+        "version": "3.0.0"
+    }
+    handler.detailed_health_check.return_value = {
+        "status": "healthy",
+        "timestamp": 1234567890.0,
+        "version": "3.0.0",
+        "components": {}
+    }
+    handler.readiness_check.return_value = {
+        "status": "ready",
+        "timestamp": 1234567890.0
+    }
+    handler.liveness_check.return_value = {
+        "status": "alive",
+        "timestamp": 1234567890.0
+    }
+    return handler
 
 async def mock_ingestor():
     """Mock document ingestor."""
-    return _mock_ingestor
+    ingestor = AsyncMock()
+    ingestor.chunker = AsyncMock()
+    ingestor._generate_embeddings.return_value = {"test-id": [0.1, 0.2, 0.3]}
+    ingestor._store_chunks_with_embeddings = AsyncMock()
+    return ingestor
 
 @pytest.fixture(scope="function")
 def test_client():
@@ -85,9 +125,9 @@ def test_client():
     app.dependency_overrides[mock_token_data] = override_any_auth_dependency
 
     # Mock rate limiter
-    limiter_patcher = patch("src.api.app.limiter")
-    mock_limiter = limiter_patcher.start()
-    mock_limiter.limit.return_value = lambda f: f
+    rate_limiter_patcher = patch("src.api.app.rate_limiter")
+    mock_rate_limiter = rate_limiter_patcher.start()
+    mock_rate_limiter.is_allowed = AsyncMock(return_value=True)
 
     # Mock auth_manager instance used in routes
     auth_manager_patcher = patch("src.api.app.auth_manager")
@@ -96,12 +136,13 @@ def test_client():
     mock_auth_manager_instance.log_security_event = AsyncMock()
 
     # Mock other dependencies
-    patches = [limiter_patcher, auth_manager_patcher]
+    patches = [rate_limiter_patcher, auth_manager_patcher]
 
     other_modules = [
         "src.api.app.resource_monitor",
         "src.api.app.performance_monitor",
         "src.observability.metrics.metrics_collector",
+        "src.core.dependencies.check_dependency_health",
     ]
 
     for module in other_modules:
@@ -118,6 +159,8 @@ def test_client():
                 mock_obj.get_all_metrics_summary.return_value = {"perf": "data"}
             if hasattr(mock_obj, "get_resource_trends"):
                 mock_obj.get_resource_trends.return_value = {"trends": "data"}
+        elif "check_dependency_health" in module:
+            mock_obj.return_value = AsyncMock(return_value={"test_service": "healthy"})
 
     try:
         client = TestClient(app)

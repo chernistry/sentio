@@ -8,7 +8,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from src.core.graph.state import RAGState
+from src.core.graph.state import RAGState, set_response, add_metadata
 from src.core.llm.chat_adapter import ChatAdapter
 from src.core.llm.prompt_builder import PromptBuilder
 from src.core.models.document import Document
@@ -109,28 +109,28 @@ class LLMGenerator:
         Returns:
             Updated RAG state with generated response
         """
-        if not state.selected_documents:
+        if not state["selected_documents"]:
             logger.warning("No documents selected for generation")
-            state.set_response("I don't have enough information to answer that question.")
+            set_response(state, "I don't have enough information to answer that question.")
             return state
 
         try:
             # Generate response
             response = await self.generate(
-                query=state.query,
-                documents=state.selected_documents,
+                query=state["query"],
+                documents=state["selected_documents"],
                 stream=False,
             )
 
             # Update state
-            state.set_response(response)
-            state.add_metadata("generator_mode", self.mode)
+            set_response(state, response)
+            add_metadata(state, "generator_mode", self.mode)
 
             logger.info("Generated response of length %d", len(response))
         except Exception as e:
             logger.error("Error generating response: %s", e)
-            state.add_metadata("generator_error", str(e))
-            state.set_response("I encountered an error while generating a response.")
+            add_metadata(state, "generator_error", str(e))
+            set_response(state, "I encountered an error while generating a response.")
 
         return state
 
@@ -145,17 +145,17 @@ class LLMGenerator:
         Yields:
             Updated RAG states with partial responses
         """
-        if not state.selected_documents:
+        if not state["selected_documents"]:
             logger.warning("No documents selected for generation")
-            state.set_response("I don't have enough information to answer that question.")
+            set_response(state, "I don't have enough information to answer that question.")
             yield state
             return
 
         try:
             # Generate streaming response
             stream_gen = await self.generate(
-                query=state.query,
-                documents=state.selected_documents,
+                query=state["query"],
+                documents=state["selected_documents"],
                 stream=True,
             )
 
@@ -180,8 +180,8 @@ class LLMGenerator:
             logger.info("Generated streaming response of length %d", len(buffer))
         except Exception as e:
             logger.error("Error generating streaming response: %s", e)
-            state.add_metadata("generator_error", str(e))
-            state.set_response("I encountered an error while generating a response.")
+            add_metadata(state, "generator_error", str(e))
+            set_response(state, "I encountered an error while generating a response.")
             yield state
 
     async def close(self) -> None:

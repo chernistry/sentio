@@ -73,13 +73,43 @@ class DenseRetriever(BaseRetriever):
                 raise
 
         docs: list[Document] = []
-        for p in points:
-            text = (p.payload or {}).get("text") if isinstance(p.payload, dict) else None
+        for i, p in enumerate(points):
+            payload = p.payload or {}
+            
+            # Try multiple content keys with fallback logic
+            text = payload.get("text") or payload.get("content") or ""
+            
+            # If still no text, check nested metadata
+            if not text and "metadata" in payload:
+                metadata_content = payload["metadata"]
+                if isinstance(metadata_content, dict):
+                    text = metadata_content.get("content", "")
+            
+            # Log content resolution for debugging
+            logger.info(f"DenseRetriever - Point {i}: "
+                       f"payload_text='{payload.get('text', '')[:50]}...', "
+                       f"payload_content='{payload.get('content', '')[:50]}...', "
+                       f"final_text='{text[:50]}...', "
+                       f"payload_keys={list(payload.keys())}")
+            
+            # Create document with proper metadata structure
+            metadata = {
+                "score": p.score,
+                **payload
+            }
+            
+            # Ensure content is available in metadata for fallback
+            if text and "content" not in metadata:
+                metadata["content"] = text
+            
             docs.append(
                 Document(
                     id=str(p.id),
-                    text=text or "",
-                    metadata={"score": p.score, **(p.payload or {})},
+                    text=text,
+                    metadata=metadata,
                 )
             )
+            
+        logger.info(f"DenseRetriever: Retrieved {len(docs)} documents, "
+                   f"{sum(1 for doc in docs if doc.text.strip())} with content")
         return docs

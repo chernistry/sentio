@@ -12,7 +12,7 @@ from typing import Any
 
 from src.core.caching import get_cache_manager
 from src.core.graph.factory import GraphConfig, build_basic_graph
-from src.core.graph.state import RAGState
+from src.core.graph.state import RAGState, create_initial_state
 from src.core.llm.factory import create_generator
 from src.core.rerankers import get_reranker
 from src.core.resilience.fallbacks import fallback_manager, llm_fallback
@@ -134,17 +134,13 @@ class ChatHandler:
             )
 
             # Prepare RAG state
-            rag_state = RAGState(
-                query=question,
-                history=history or [],
-                top_k=top_k,
-                metadata={
-                    "query_id": query_id,
-                    "temperature": temperature,
-                    "request_timestamp": request_start,
-                    **(metadata or {}),
-                }
-            )
+            rag_state = create_initial_state(question)
+            rag_state["metadata"].update({
+                "query_id": query_id,
+                "temperature": temperature,
+                "request_timestamp": request_start,
+                **(metadata or {}),
+            })
 
             # Execute RAG pipeline
             try:
@@ -152,6 +148,21 @@ class ChatHandler:
                     rag_state,
                     config={"configurable": {"thread_id": query_id}}
                 )
+
+                # DEBUG: Log the result object structure
+                logger.info(f"DEBUG - Result type: {type(result)}")
+                logger.info(f"DEBUG - Result keys: {list(result.keys()) if hasattr(result, 'keys') else 'No keys method'}")
+                if hasattr(result, '__dict__'):
+                    logger.info(f"DEBUG - Result attributes: {list(result.__dict__.keys())}")
+                
+                # Log document counts at each stage
+                retrieved_docs = result.get('retrieved_documents', [])
+                reranked_docs = result.get('reranked_documents', [])
+                selected_docs = result.get('selected_documents', [])
+                
+                logger.info(f"DEBUG - Retrieved documents: {len(retrieved_docs)}")
+                logger.info(f"DEBUG - Reranked documents: {len(reranked_docs)}")
+                logger.info(f"DEBUG - Selected documents: {len(selected_docs)}")
 
                 # Extract response and sources
                 response_text = result.get("response", "")
@@ -261,12 +272,8 @@ class ChatHandler:
         if self._initialized and self._graph:
             try:
                 # Test basic graph functionality
-                test_state = RAGState(
-                    query="test query",
-                    history=[],
-                    top_k=1,
-                    metadata={"health_check": True}
-                )
+                test_state = create_initial_state("test query")
+                test_state["metadata"]["health_check"] = True
 
                 # Run a minimal test (just retrieval step)
                 await asyncio.wait_for(

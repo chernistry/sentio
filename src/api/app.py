@@ -374,6 +374,22 @@ if not settings.auth_enabled:
     )
 
 
+# Dependency functions for auth
+async def get_metrics_auth():
+    """Get auth dependency for metrics endpoints."""
+    if not settings.auth_enabled:
+        return None
+    auth_manager = await get_auth_manager_dep()
+    return auth_manager.require_scopes([AuthScope.METRICS])
+
+async def get_delete_auth():
+    """Get auth dependency for delete endpoints."""
+    if not settings.auth_enabled:
+        return None
+    auth_manager = await get_auth_manager_dep()
+    return auth_manager.require_scopes([AuthScope.DELETE, AuthScope.ADMIN])
+
+
 # Dependency container for managing application state
 container = get_container()
 
@@ -556,9 +572,7 @@ async def chat(
 @app.post("/clear")
 async def clear_collection(
     vector_store: Any = Depends(get_vector_store_dep),
-    # Temporarily disable auth for debugging
-    # auth_manager: AuthManager | None = Depends(get_auth_manager_dep) if settings.auth_enabled else None,
-    # token_data: TokenData | None = Depends(lambda: get_auth_manager_dep().require_scopes([AuthScope.DELETE, AuthScope.ADMIN])) if settings.auth_enabled else None,
+    token_data: TokenData | None = Depends(get_delete_auth),
 ) -> dict[str, str]:
     """Clear the vector store collection.
     """
@@ -622,8 +636,7 @@ async def system_info() -> dict[str, Any]:
 
 @app.get("/metrics")
 async def get_metrics(
-    auth_manager: AuthManager | None = Depends(get_auth_manager_dep) if settings.auth_enabled else None,
-    token_data: TokenData | None = Depends(lambda: get_auth_manager_dep().require_scopes([AuthScope.METRICS])) if settings.auth_enabled else None,
+    token_data: TokenData | None = Depends(get_metrics_auth),
 ):
     """Prometheus-compatible metrics endpoint.
     """
@@ -646,8 +659,7 @@ async def get_metrics(
 
 @app.get("/metrics/performance")
 async def get_performance_metrics(
-    auth_manager: AuthManager | None = Depends(get_auth_manager_dep) if settings.auth_enabled else None,
-    token_data: TokenData | None = Depends(lambda: get_auth_manager_dep().require_scopes([AuthScope.METRICS])) if settings.auth_enabled else None,
+    token_data: TokenData | None = Depends(get_metrics_auth),
 ) -> dict[str, Any]:
     """Get detailed performance metrics in JSON format.
     """
