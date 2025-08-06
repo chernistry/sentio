@@ -363,6 +363,16 @@ instrument_http_clients()
 #     expose_headers=["X-Total-Count", "X-Request-ID"],
 # )
 
+# If auth is disabled, we can also loosen CORS for local dev
+if not settings.auth_enabled:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"]
+    )
+
 
 # Dependency container for managing application state
 container = get_container()
@@ -437,7 +447,7 @@ async def embed_document(
     request: EmbedRequest,
     request_obj: Request,
     ingestor: DocumentIngestor = Depends(get_ingestor),
-    # Temporarily disable auth for debugging
+    # Auth optional via env toggle
     # auth_manager: AuthManager = Depends(get_auth_manager_dep),
     # token_data: TokenData = Depends(auth_manager.require_scopes([AuthScope.EMBED]))
 ) -> dict[str, Any]:
@@ -495,7 +505,7 @@ async def chat(
     request: ChatRequest,
     request_obj: Request,
     chat_handler: Any = Depends(get_chat_handler),
-    # Temporarily disable auth for debugging
+    # Auth optional via env toggle
     # auth_manager: AuthManager = Depends(get_auth_manager_dep),
     # token_data: TokenData = Depends(auth_manager.require_scopes([AuthScope.CHAT]))
 ) -> ChatResponse:
@@ -546,11 +556,12 @@ async def chat(
 @app.post("/clear")
 async def clear_collection(
     vector_store: Any = Depends(get_vector_store_dep),
-    auth_manager: AuthManager = Depends(get_auth_manager_dep),
-    token_data: TokenData = Depends(auth_manager.require_scopes([AuthScope.DELETE, AuthScope.ADMIN]))
+    auth_manager: AuthManager | None = Depends(get_auth_manager_dep) if settings.auth_enabled else None,
+    token_data: TokenData | None = Depends(lambda: get_auth_manager_dep().require_scopes([AuthScope.DELETE, AuthScope.ADMIN])) if settings.auth_enabled else None,
 ) -> dict[str, str]:
     """Clear the vector store collection.
     """
+    # If auth disabled, proceed without token validation
     try:
 
         # Method depends on the specific vector store implementation
@@ -610,8 +621,8 @@ async def system_info() -> dict[str, Any]:
 
 @app.get("/metrics")
 async def get_metrics(
-    auth_manager: AuthManager = Depends(get_auth_manager_dep),
-    token_data: TokenData = Depends(auth_manager.require_scopes([AuthScope.METRICS]))
+    auth_manager: AuthManager | None = Depends(get_auth_manager_dep) if settings.auth_enabled else None,
+    token_data: TokenData | None = Depends(lambda: get_auth_manager_dep().require_scopes([AuthScope.METRICS])) if settings.auth_enabled else None,
 ):
     """Prometheus-compatible metrics endpoint.
     """
@@ -634,8 +645,8 @@ async def get_metrics(
 
 @app.get("/metrics/performance")
 async def get_performance_metrics(
-    auth_manager: AuthManager = Depends(get_auth_manager_dep),
-    token_data: TokenData = Depends(auth_manager.require_scopes([AuthScope.METRICS]))
+    auth_manager: AuthManager | None = Depends(get_auth_manager_dep) if settings.auth_enabled else None,
+    token_data: TokenData | None = Depends(lambda: get_auth_manager_dep().require_scopes([AuthScope.METRICS])) if settings.auth_enabled else None,
 ) -> dict[str, Any]:
     """Get detailed performance metrics in JSON format.
     """

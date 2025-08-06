@@ -2,19 +2,19 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Установка системных зависимостей
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Копируем requirements.txt отдельно для кэширования слоя с зависимостями
+# Copy requirements.txt separately to cache dependencies layer
 COPY requirements.txt .
 
-# Устанавливаем Python зависимости
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir streamlit PyPDF2
 
-# Копируем остальной код
+# Copy the rest of the code
 COPY src/ ./src/
 
 EXPOSE 8501
