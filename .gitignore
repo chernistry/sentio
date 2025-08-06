@@ -18,6 +18,8 @@ root/data/raw/
 prep/
 models/
 .models/
+!src/core/models/
+!src/core/models/**
 qdrant_data/
 qdrant_data/*
 

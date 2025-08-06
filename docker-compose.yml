@@ -9,6 +9,7 @@ services:
     environment:
       - QDRANT_URL=${QDRANT_URL:-https://your-qdrant-instance.cloud}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-your-api-key}
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000,http://sentio-ui:8501,http://localhost:8501
     volumes:
       - ./src:/app/src
       - ./.fallback_cache:/app/.fallback_cache
@@ -31,6 +32,13 @@ services:
       - "8502:8501"
     environment:
       - SENTIO_BACKEND_URL=http://sentio-api:8000
-    command: bash -c "pip install -r /app/requirements.txt && pip install streamlit PyPDF2 && streamlit run src/ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"
+    command: >
+      bash -c "apt-get update && apt-get install -y curl && \
+      pip install -r /app/requirements.txt && pip install streamlit PyPDF2 && \
+      streamlit run src/ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"
     depends_on:
-      - api 
+      - api
+
+networks:
+  default:
+    driver: bridge
