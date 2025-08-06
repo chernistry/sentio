@@ -26,12 +26,11 @@ def mock_openai_client():
 @pytest.fixture
 def openai_provider(mock_openai_client):
     """Create OpenAI provider with mocked client."""
-    with patch('openai.AsyncOpenAI', return_value=mock_openai_client):
+    with patch('httpx.AsyncClient') as mock_client:
+        mock_client.return_value = mock_openai_client
         provider = OpenAIProvider(
             api_key="test-key",
-            model="gpt-3.5-turbo",
-            temperature=0.7,
-            max_tokens=1000
+            model="gpt-3.5-turbo"
         )
         provider._client = mock_openai_client
         return provider
@@ -242,12 +241,11 @@ class TestOpenAIProvider:
         models_to_test = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"]
         
         for model in models_to_test:
-            with patch('openai.AsyncOpenAI', return_value=mock_openai_client):
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_client.return_value = mock_openai_client
                 provider = OpenAIProvider(
                     api_key="test-key",
-                    model=model,
-                    temperature=0.5,
-                    max_tokens=500
+                    model=model
                 )
                 provider._client = mock_openai_client
 

@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.core.embeddings.providers.jina import JinaEmbeddings
+from src.core.embeddings.providers.jina import JinaEmbedder
 from src.core.models.document import Document
 
 

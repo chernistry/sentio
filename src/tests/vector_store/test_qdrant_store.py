@@ -30,7 +30,8 @@ def mock_qdrant_client():
 @pytest.fixture
 def qdrant_store(mock_qdrant_client):
     """Create QdrantStore with mocked client."""
-    with patch('qdrant_client.QdrantClient', return_value=mock_qdrant_client):
+    with patch('qdrant_client.QdrantClient', return_value=mock_qdrant_client), \
+         patch.object(QdrantStore, '_bootstrap_collection'):
         store = QdrantStore(
             url="http://localhost:6333",
             collection_name="test_collection",
