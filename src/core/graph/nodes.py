@@ -123,12 +123,36 @@ def create_reranker_node(
         logger.info("Reranking %d documents", len(state.retrieved_documents))
 
         try:
-            # Rerank documents
+            # Apply content fallback and log incoming documents before reranking
+            prepared_docs = []
+            for i, doc in enumerate(state.retrieved_documents):
+                original_text = doc.text
+                fallback_content = doc.metadata.get('content', '') if doc.metadata else ''
+                
+                # Apply fallback: use metadata.content if doc.text is empty
+                if not doc.text and fallback_content:
+                    doc.text = fallback_content
+                    logger.info(f"Reranker - Doc {i}: Applied fallback from metadata.content")
+                
+                # Log incoming document details (truncated for safety)
+                logger.info(f"Reranker - Input Doc {i}: original_text='{original_text[:100]}...', "
+                           f"fallback_content='{fallback_content[:100]}...', "
+                           f"final_text='{doc.text[:100]}...', "
+                           f"has_content={bool(doc.text.strip())}")
+                
+                prepared_docs.append(doc)
+
+            # Rerank documents with prepared content
             reranked_docs = reranker.rerank(
                 query=state.query,
-                docs=state.retrieved_documents,
+                docs=prepared_docs,
                 top_k=top_k,
             )
+
+            # Log reranked results
+            for i, doc in enumerate(reranked_docs):
+                logger.info(f"Reranker - Output Doc {i}: text='{doc.text[:100]}...', "
+                           f"score={doc.metadata.get('score', 'N/A')}")
 
             # Update state
             state.add_reranked_documents(reranked_docs)
@@ -136,11 +160,21 @@ def create_reranker_node(
             state.add_metadata("reranked_count", len(reranked_docs))
 
             logger.info("Reranked to %d documents", len(reranked_docs))
+            
+            # Log content availability after reranking
+            docs_with_content = sum(1 for doc in reranked_docs if doc.text.strip())
+            logger.info(f"Reranker output: {docs_with_content}/{len(reranked_docs)} docs have content")
+            
         except Exception as e:
             logger.error("Error reranking documents: %s", e)
             state.add_metadata("reranker_error", str(e))
-            # Fall back to retrieved documents
-            state.add_reranked_documents(state.retrieved_documents[:top_k])
+            # Fall back to retrieved documents with content normalization
+            fallback_docs = []
+            for doc in state.retrieved_documents[:top_k]:
+                if not doc.text and doc.metadata.get('content'):
+                    doc.text = doc.metadata['content']
+                fallback_docs.append(doc)
+            state.add_reranked_documents(fallback_docs)
 
         return state
 
