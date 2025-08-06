@@ -53,12 +53,37 @@ def create_retriever_node(
             # Retrieve documents
             docs = retriever.retrieve(state.query, top_k=top_k)
 
-            # Update state
-            state.add_retrieved_documents(docs)
-            state.add_metadata("retriever_type", type(retriever).__name__)
-            state.add_metadata("retrieved_count", len(docs))
+            # Normalize document content with fallback and detailed logging
+            normalized_docs = []
+            for i, doc in enumerate(docs):
+                original_text = doc.text
+                fallback_content = doc.metadata.get('content', '') if doc.metadata else ''
+                
+                # Apply fallback: use metadata.content if doc.text is empty
+                if not doc.text and fallback_content:
+                    doc.text = fallback_content
+                    logger.info(f"Retriever - Doc {i}: Applied fallback from metadata.content")
+                
+                # Log diagnostic details (truncated for safety)
+                logger.info(f"Retriever - Doc {i}: original_text='{original_text[:100]}...', "
+                           f"fallback_content='{fallback_content[:100]}...', "
+                           f"final_text='{doc.text[:100]}...', "
+                           f"metadata_keys={list(doc.metadata.keys()) if doc.metadata else []}")
+                
+                normalized_docs.append(doc)
 
-            logger.info("Retrieved %d documents", len(docs))
+            # Update state
+            state.add_retrieved_documents(normalized_docs)
+            state.add_metadata("retriever_type", type(retriever).__name__)
+            state.add_metadata("retrieved_count", len(normalized_docs))
+
+            logger.info("Retrieved %d documents with content normalization", len(normalized_docs))
+            
+            # Log summary of content availability
+            docs_with_text = sum(1 for doc in normalized_docs if doc.text.strip())
+            docs_with_fallback = sum(1 for doc in normalized_docs if not doc.text.strip() and doc.metadata.get('content', '').strip())
+            logger.info(f"Content summary: {docs_with_text} docs with text, {docs_with_fallback} docs needing fallback")
+            
         except Exception as e:
             logger.error("Error retrieving documents: %s", e)
             state.add_metadata("retriever_error", str(e))
