@@ -27,7 +27,7 @@ def mock_qdrant_client():
     client.search.return_value = [
         MagicMock(
             id="doc1",
-            payload={"text": "Test document content", "metadata": {"source": "test.pdf"}},
+            payload={"content": "Test document content", "metadata": {"source": "test.pdf"}},
             score=0.95
         )
     ]
@@ -50,6 +50,10 @@ def qdrant_store(mock_qdrant_client):
     # Create a mock embedding
     mock_embedding = MagicMock()
     mock_embedding.embed_query.return_value = [0.1, 0.2, 0.3] * 128  # 384 dimensions
+    # Fix: embed_documents should return a list of embeddings (one per document)
+    def mock_embed_documents(texts):
+        return [[0.1, 0.2, 0.3] * 128 for _ in texts]
+    mock_embedding.embed_documents.side_effect = mock_embed_documents
     
     with patch('src.core.vector_store.qdrant_store.QdrantClient', return_value=mock_qdrant_client):
         store = QdrantStore(
@@ -93,7 +97,7 @@ class TestQdrantStore:
         mock_qdrant_client.search.return_value = [
             MagicMock(
                 id="doc1",
-                payload={"text": "Filtered document", "metadata": {"category": "science"}},
+                payload={"content": "Filtered document", "metadata": {"category": "science"}},
                 score=0.88
             )
         ]
@@ -180,6 +184,9 @@ class TestQdrantStore:
 
     def test_create_collection(self, qdrant_store, mock_qdrant_client):
         """Test collection creation."""
+        # Reset mock call count since bootstrap is called during initialization
+        mock_qdrant_client.create_collection.reset_mock()
+        
         # Access bootstrap method
         qdrant_store._bootstrap_collection()
         
@@ -195,8 +202,12 @@ class TestQdrantStore:
 
     def test_collection_exists(self, qdrant_store, mock_qdrant_client):
         """Test collection existence check."""
+        # Create a proper mock collection with name attribute
+        mock_collection = MagicMock()
+        mock_collection.name = "test_collection"
+        
         mock_qdrant_client.get_collections.return_value = MagicMock(
-            collections=[MagicMock(name="test_collection")]
+            collections=[mock_collection]
         )
         
         # Check through collections list
@@ -232,13 +243,13 @@ class TestQdrantStore:
         # Simulate connection failure then success
         mock_qdrant_client.search.side_effect = [
             Exception("Connection failed"),
-            [MagicMock(id="doc1", payload={"text": "Success"}, score=0.9)]
+            [MagicMock(id="doc1", payload={"content": "Success"}, score=0.9)]
         ]
         
         # First call should fail, but we'll test the success case
         mock_qdrant_client.search.side_effect = None
         mock_qdrant_client.search.return_value = [
-            MagicMock(id="doc1", payload={"text": "Success"}, score=0.9)
+            MagicMock(id="doc1", payload={"content": "Success"}, score=0.9)
         ]
         
         results = qdrant_store.similarity_search("test", k=5)
@@ -249,7 +260,7 @@ class TestQdrantStore:
         # This is handled by the embedding process, not the vector store directly
         # Test that we can search successfully
         mock_qdrant_client.search.return_value = [
-            MagicMock(id="doc1", payload={"text": "Valid"}, score=0.9)
+            MagicMock(id="doc1", payload={"content": "Valid"}, score=0.9)
         ]
         
         results = qdrant_store.similarity_search("test", k=5)
@@ -261,7 +272,7 @@ class TestQdrantStore:
         
         # Mock concurrent searches
         mock_qdrant_client.search.return_value = [
-            MagicMock(id="doc1", payload={"text": "Concurrent"}, score=0.9)
+            MagicMock(id="doc1", payload={"content": "Concurrent"}, score=0.9)
         ]
         
         # Simulate concurrent operations
@@ -277,7 +288,7 @@ class TestQdrantStore:
             MagicMock(
                 id="doc1",
                 payload={
-                    "text": "Complex filtered document",
+                    "content": "Complex filtered document",
                     "metadata": {"category": "science", "year": 2023}
                 },
                 score=0.92

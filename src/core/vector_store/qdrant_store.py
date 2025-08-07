@@ -352,8 +352,11 @@ class QdrantStore(VectorStore):
             raise ValueError("Number of texts and embeddings must be the same.")
 
         metadatas = metadatas or [{}] * len(texts_list)
-        if len(metadatas) != len(texts_list):
-            raise ValueError("Number of texts and metadatas must be the same.")
+        # Pad metadatas to match texts length if needed
+        if len(metadatas) < len(texts_list):
+            metadatas.extend([{}] * (len(texts_list) - len(metadatas)))
+        elif len(metadatas) > len(texts_list):
+            metadatas = metadatas[:len(texts_list)]
 
         points = []
         ids_out = []

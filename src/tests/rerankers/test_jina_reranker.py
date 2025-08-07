@@ -52,25 +52,28 @@ def sample_documents():
 class TestJinaReranker:
     """Test Jina reranker functionality."""
 
-    async def test_rerank_success(self, jina_reranker, sample_documents):
+    def test_rerank_success(self, jina_reranker, sample_documents):
         """Test successful document reranking."""
         query = "What is machine learning?"
         
-        # Mock the rerank method directly
-        mock_results = [
-            (sample_documents[0], 0.95),
-            (sample_documents[1], 0.87),
-            (sample_documents[2], 0.75)
-        ]
+        # Mock the _rerank_with_resilience method to return API response format
+        mock_api_response = {
+            "results": [
+                {"index": 0, "relevance_score": 0.95},
+                {"index": 1, "relevance_score": 0.87},
+                {"index": 2, "relevance_score": 0.75}
+            ]
+        }
         
-        with patch.object(jina_reranker, '_execute_rerank_request', return_value=mock_results) as mock_request:
-            results = await jina_reranker.rerank(query, sample_documents, top_k=3)
+        with patch.object(jina_reranker, '_rerank_with_resilience', return_value=mock_api_response) as mock_request:
+            results = jina_reranker.rerank(query, sample_documents, top_k=3)
             
             # Verify results
             assert len(results) == 3
-            assert all(isinstance(doc, Document) for doc, _ in results)
-            assert all(isinstance(score, float) for _, score in results)
-            assert results[0][1] >= results[1][1] >= results[2][1]  # Sorted by score
+            assert all(isinstance(doc, Document) for doc in results)
+            # Check that documents are sorted by rerank_score
+            scores = [doc.metadata.get("rerank_score", 0.0) for doc in results]
+            assert scores == sorted(scores, reverse=True)
             mock_request.assert_called_once()
 
     async def test_rerank_with_top_k_limit(self, jina_reranker, sample_documents):
