@@ -56,6 +56,7 @@ class DocumentIngestor:
         self.chunker: TextChunker | None = None
         self.embedder: BaseEmbedder | None = None
         self.vector_store: Any | None = None
+        self._initialized: bool = False
 
         # Stats tracking
         self._stats: dict[str, Any] = {
@@ -114,6 +115,9 @@ class DocumentIngestor:
                 else:
                     logger.warning("⚠ Vector store connection check failed")
 
+            self._initialized = True
+            logger.info("✅ Document ingestor fully initialized")
+
         except Exception as e:
             logger.error(f"Failed to initialize components: {e}")
             raise
@@ -157,6 +161,9 @@ class DocumentIngestor:
                     logger.info("✓ Vector store connection verified")
                 else:
                     logger.warning("⚠ Vector store connection check failed")
+
+            self._initialized = True
+            logger.info("✅ Document ingestor fully initialized with shared components")
 
         except Exception as e:
             logger.error(f"Failed to initialize components with shared instances: {e}")
@@ -231,7 +238,8 @@ class DocumentIngestor:
             raise ValueError(f"Directory does not exist: {data_dir}")
 
         if not any(data_dir.iterdir()):
-            raise ValueError(f"No files found in directory: {data_dir}")
+            logger.warning(f"No files found in directory: {data_dir}")
+            return []  # Return empty list instead of raising exception
 
         logger.info(f"Loading documents from {data_dir}")
 

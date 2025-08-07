@@ -10,8 +10,8 @@ def mock_graph():
     """Mock LangGraph for testing."""
     graph = AsyncMock()
     graph.ainvoke.return_value = {
-        "answer": "Test response from graph",
-        "sources": [
+        "response": "Test response from graph",
+        "selected_documents": [
             {"text": "Source 1", "score": 0.9, "metadata": {"source": "doc1.pdf"}},
             {"text": "Source 2", "score": 0.8, "metadata": {"source": "doc2.pdf"}}
         ],
@@ -52,8 +52,8 @@ class TestChatHandler:
         """Test successful chat request processing."""
         # Mock successful graph response
         mock_graph.ainvoke.return_value = {
-            "answer": "Test response",
-            "sources": [{"text": "Source", "score": 0.9}],
+            "response": "Test response",
+            "selected_documents": [{"text": "Source", "score": 0.9}],
             "metadata": {"processing_time": 1.0}
         }
         
@@ -81,8 +81,8 @@ class TestChatHandler:
         ]
         
         mock_graph.ainvoke.return_value = {
-            "answer": "Response with history",
-            "sources": [],
+            "response": "Response with history",
+            "selected_documents": [],
             "metadata": {}
         }
         
@@ -99,8 +99,8 @@ class TestChatHandler:
     async def test_process_chat_request_empty_response(self, chat_handler, mock_graph):
         """Test handling of empty responses."""
         mock_graph.ainvoke.return_value = {
-            "answer": "",
-            "sources": [],
+            "response": "",
+            "selected_documents": [],
             "metadata": {}
         }
         
@@ -119,13 +119,17 @@ class TestChatHandler:
         """Test handling of graph processing errors."""
         mock_graph.ainvoke.side_effect = Exception("Graph processing error")
         
-        with pytest.raises(Exception, match="Graph processing error"):
-            await chat_handler.process_chat_request(
-                question="Error test",
-                history=[],
-                top_k=5,
-                temperature=0.7
-            )
+        response = await chat_handler.process_chat_request(
+            question="Error test",
+            history=[],
+            top_k=5,
+            temperature=0.7
+        )
+        
+        # Should return fallback response instead of raising exception
+        assert "answer" in response
+        assert response["metadata"]["fallback_used"] is True
+        assert "Graph processing error" in response["metadata"]["error"]
 
     def test_format_sources(self, chat_handler):
         """Test source formatting functionality."""
@@ -161,8 +165,8 @@ class TestChatHandler:
     async def test_metrics_collection(self, chat_handler, mock_graph):
         """Test metrics collection during processing."""
         mock_graph.ainvoke.return_value = {
-            "answer": "Metrics test response",
-            "sources": [],
+            "response": "Metrics test response",
+            "selected_documents": [],
             "metadata": {"processing_time": 1.2}
         }
         
@@ -184,8 +188,8 @@ class TestChatHandler:
         """Test circuit breaker integration."""
         # Mock circuit breaker behavior
         mock_graph.ainvoke.return_value = {
-            "answer": "Circuit breaker test",
-            "sources": [],
+            "response": "Circuit breaker test",
+            "selected_documents": [],
             "metadata": {}
         }
         
@@ -221,21 +225,22 @@ class TestChatHandler:
         mock_graph.ainvoke.side_effect = [
             Exception("Transient error"),
             {
-                "answer": "Recovery successful",
-                "sources": [],
+                "response": "Recovery successful",
+                "selected_documents": [],
                 "metadata": {}
             }
         ]
         
-        # First call should fail
-        with pytest.raises(Exception, match="Transient error"):
-            await chat_handler.process_chat_request("Test", [], 5, 0.7)
+        # First call should return error response (not raise exception)
+        response = await chat_handler.process_chat_request("Test", [], 5, 0.7)
+        assert response["metadata"]["success"] is False
+        assert "Transient error" in response["metadata"]["error"]
         
         # Reset side effect for second call
         mock_graph.ainvoke.side_effect = None
         mock_graph.ainvoke.return_value = {
-            "answer": "Recovery successful",
-            "sources": [],
+            "response": "Recovery successful",
+            "selected_documents": [],
             "metadata": {}
         }
         
@@ -248,8 +253,8 @@ class TestChatHandler:
         import asyncio
         
         mock_graph.ainvoke.return_value = {
-            "answer": "Concurrent response",
-            "sources": [],
+            "response": "Concurrent response",
+            "selected_documents": [],
             "metadata": {}
         }
         
@@ -276,8 +281,8 @@ class TestChatHandler:
             ])
         
         mock_graph.ainvoke.return_value = {
-            "answer": "Large context response",
-            "sources": [],
+            "response": "Large context response",
+            "selected_documents": [],
             "metadata": {}
         }
         
@@ -311,8 +316,8 @@ class TestChatHandler:
     async def test_response_formatting(self, chat_handler, mock_graph):
         """Test response formatting and structure."""
         mock_graph.ainvoke.return_value = {
-            "answer": "Formatted response",
-            "sources": [
+            "response": "Formatted response",
+            "selected_documents": [
                 {
                     "text": "Source text",
                     "score": 0.95,
@@ -352,8 +357,8 @@ class TestChatHandler:
             import asyncio
             await asyncio.sleep(0.1)  # Simulate slow response
             return {
-                "answer": "Slow response",
-                "sources": [],
+                "response": "Slow response",
+                "selected_documents": [],
                 "metadata": {}
             }
         

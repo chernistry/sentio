@@ -12,9 +12,9 @@ def mock_openai_client():
     client = AsyncMock()
     
     # Mock successful HTTP response
-    mock_response = AsyncMock()
+    mock_response = MagicMock()  # Use MagicMock for sync methods
     mock_response.status_code = 200
-    mock_response.raise_for_status.return_value = None
+    mock_response.raise_for_status = MagicMock()  # Sync method
     mock_response.json.return_value = {
         "choices": [
             {
@@ -178,11 +178,10 @@ class TestOpenAIProvider:
 
     async def test_health_check_success(self, openai_provider, mock_openai_client):
         """Test successful health check."""
-        # Mock successful health check response
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_response.raise_for_status.return_value = None
-        mock_openai_client.post.return_value = mock_response
+        # Mock successful chat completion response
+        mock_openai_client.post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "test"}}]
+        }
         
         is_healthy = await openai_provider.health_check()
         assert is_healthy is True
@@ -340,8 +339,9 @@ class TestOpenAIProvider:
         # Mock timeout error
         mock_openai_client.post.side_effect = Exception("Request timeout")
         
-        with pytest.raises(Exception, match="Request timeout"):
-            await openai_provider.health_check()
+        # Should return False for health check instead of raising exception
+        is_healthy = await openai_provider.health_check()
+        assert is_healthy is False
 
     def test_special_characters_in_query(self, openai_provider):
         """Test handling of special characters in queries."""

@@ -35,6 +35,15 @@ def document_ingestor(mock_embedder, mock_vector_store):
     ingestor.embedder = mock_embedder
     ingestor.vector_store = mock_vector_store
     ingestor._initialized = True
+    
+    # Mock the chunker as well
+    mock_chunker = MagicMock()
+    mock_chunker.split.return_value = [
+        Document(text="chunk1", metadata={"source": "test"}),
+        Document(text="chunk2", metadata={"source": "test"})
+    ]
+    ingestor.chunker = mock_chunker
+    
     return ingestor
 
 

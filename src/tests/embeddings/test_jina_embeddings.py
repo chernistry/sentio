@@ -94,9 +94,13 @@ class TestJinaEmbedder:
         """Test handling of API errors."""
         texts = ["Document with error"]
         
-        # Mock API error
-        with patch.object(jina_embeddings, '_execute_async_request', side_effect=EmbeddingError("API Error")) as mock_request:
-            with pytest.raises(EmbeddingError, match="API Error"):
+        # Mock API error by making the client raise an exception
+        mock_httpx_client.post.side_effect = Exception("API Error")
+        
+        # Mock the fallback to also fail
+        with patch('src.core.embeddings.providers.jina.embedding_fallback.generate_simple_embedding', 
+                   side_effect=Exception("Fallback failed")):
+            with pytest.raises(EmbeddingError, match="Both primary and fallback embedding services failed"):
                 await jina_embeddings.embed_async_many(texts)
 
     async def test_embed_async_many_rate_limit(self, jina_embeddings, mock_httpx_client):
@@ -104,8 +108,12 @@ class TestJinaEmbedder:
         texts = ["Document with rate limit"]
         
         # Mock rate limit error
-        with patch.object(jina_embeddings, '_execute_async_request', side_effect=EmbeddingError("Rate limit exceeded")) as mock_request:
-            with pytest.raises(EmbeddingError, match="Rate limit exceeded"):
+        mock_httpx_client.post.side_effect = Exception("Rate limit exceeded")
+        
+        # Mock the fallback to also fail
+        with patch('src.core.embeddings.providers.jina.embedding_fallback.generate_simple_embedding', 
+                   side_effect=Exception("Fallback failed")):
+            with pytest.raises(EmbeddingError, match="Both primary and fallback embedding services failed"):
                 await jina_embeddings.embed_async_many(texts)
 
     async def test_embed_async_many_network_error(self, jina_embeddings, mock_httpx_client):
@@ -113,8 +121,12 @@ class TestJinaEmbedder:
         texts = ["Document with network error"]
         
         # Mock network error
-        with patch.object(jina_embeddings, '_execute_async_request', side_effect=EmbeddingError("Connection failed")) as mock_request:
-            with pytest.raises(EmbeddingError, match="Connection failed"):
+        mock_httpx_client.post.side_effect = Exception("Connection failed")
+        
+        # Mock the fallback to also fail
+        with patch('src.core.embeddings.providers.jina.embedding_fallback.generate_simple_embedding', 
+                   side_effect=Exception("Fallback failed")):
+            with pytest.raises(EmbeddingError, match="Both primary and fallback embedding services failed"):
                 await jina_embeddings.embed_async_many(texts)
 
     async def test_different_models(self, mock_httpx_client):
