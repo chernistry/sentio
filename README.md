@@ -16,7 +16,7 @@ This repository is a template for building Retrieval-Augmented Generation (RAG) 
 | **Category** | **Details** |
 |--------------|-------------|
 | **Architecture** | Microservices example with common patterns |
-| **Performance** | Circuit breakers, caching, async processing (example) |
+| **Performance** | Async pipeline, vector-store integration, optional reranking |
 | **Deployment** | Kubernetes manifests, basic monitoring (example) |
 | **Security** | OWASP-inspired, with sample rate limiting and RBAC |
 
@@ -118,7 +118,7 @@ graph TD
     API --> LOGS
 ```
 
-### LangGraph RAG Pipeline
+### LangGraph RAG Pipeline (as implemented)
 
 ```mermaid
 graph TD
@@ -126,14 +126,14 @@ graph TD
     VALIDATE --> CACHE_CHECK{Cache Hit?}
     
     CACHE_CHECK -->|Hit| CACHE_RETURN[Return Cached Result]
-    CACHE_CHECK -->|Miss| EMBED[Query Embedding<br/>w/ Circuit Breaker]
+    CACHE_CHECK -->|Miss| EMBED[Query Embedding]
     
     EMBED --> HYBRID[Hybrid Retrieval]
     
-    subgraph "Hybrid Retrieval Strategy"
+    subgraph "Retrieval Strategy"
         DENSE[Dense Search<br/>Qdrant Vector]
-        SPARSE[Sparse Search<br/>BM25 + Pyserini]
-        RRF[Reciprocal Rank<br/>Fusion]
+        SPARSE[Sparse Search (optional)]
+        RRF[Reciprocal Rank Fusion (optional)]
     end
     
     HYBRID --> DENSE
@@ -141,7 +141,7 @@ graph TD
     DENSE --> RRF
     SPARSE --> RRF
     
-    RRF --> RERANK[Multi-Stage Reranking]
+    RRF --> RERANK[Optional Reranking]
     
     subgraph "Reranking Pipeline"
         CROSS[Cross-Encoder<br/>Reranking]
@@ -153,8 +153,8 @@ graph TD
     CROSS --> MMR
     MMR --> FILTER
     
-    FILTER --> CONTEXT[Context Assembly<br/>& Optimization]
-    CONTEXT --> GENERATE[LLM Generation<br/>w/ Fallbacks]
+    FILTER --> CONTEXT[Context Assembly]
+    CONTEXT --> GENERATE[LLM Generation<br/>with fallbacks]
     
     GENERATE --> RESPONSE[Response Assembly]
     RESPONSE --> CACHE_STORE[Cache Result]
@@ -271,7 +271,7 @@ async def process_chat_request(self, question: str) -> Dict[str, Any]:
 ### Security Implementation
 
 - **OWASP Top 10 Patterns**: Input validation, injection prevention, secure headers
-- **Rate Limiting**: Per-IP and per-user limits (example)
+- **Rate Limiting**: Per-IP limits via middleware
 - **Input Sanitization**: Example cleaning and validation
 - **API Security**: JWT tokens, RBAC, request signing (example)
 - **Network Security**: mTLS, Network Policies (example)
@@ -415,7 +415,7 @@ Processes natural language queries through the complete RAG pipeline.
     "processing_time": "float",
     "model_used": "string",
     "retrieval_stats": "object",
-    "cache_hit": "boolean"
+    "success": "boolean"
   }
 }
 ```
@@ -626,7 +626,7 @@ graph TD
 
 ## Configuration
 
-### Environment Variables
+### Environment Variables (excerpt)
 
 ```bash
 # Vector Store Configuration
@@ -643,6 +643,9 @@ JINA_API_KEY=your-key
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your-key
 OPENAI_MODEL=gpt-3.5-turbo
+CHAT_LLM_MODEL=gpt-3.5-turbo
+CHAT_LLM_API_KEY=$OPENAI_API_KEY
+CHAT_LLM_BASE_URL=https://api.openai.com/v1
 
 # Processing Configuration
 CHUNK_SIZE=512
@@ -655,7 +658,7 @@ TOP_K_RERANK=5
 MIN_RELEVANCE_SCORE=0.05
 
 # Observability
-LOG_LEVEL=info
+LOG_LEVEL=INFO
 METRICS_ENABLED=true
 TRACING_ENABLED=false
 ```
@@ -740,10 +743,11 @@ sentio-vnext/
 │   │   ├── app.py             # Main application
 │   │   └── handlers/          # Request handlers
 │   ├── core/                  # Business logic
-│   │   ├── graph/             # LangGraph workflows
-│   │   ├── retrievers/        # Retrieval strategies
-│   │   ├── embeddings/        # Embedding providers
-│   │   └── llm/               # LLM integrations
+│   │   ├── graph/             # LangGraph workflows (retriever, reranker, selector, generator)
+│   │   ├── retrievers/        # Retrieval strategies (dense, optional hybrid)
+│   │   ├── embeddings/        # Embedding providers (Jina)
+│   │   ├── vector_store/      # Qdrant sync/async stores
+│   │   └── llm/               # LLM integrations (OpenAI-compatible)
 │   ├── observability/         # Monitoring & metrics
 │   ├── utils/                 # Utilities & settings
 │   └── tests/                 # Test suite
