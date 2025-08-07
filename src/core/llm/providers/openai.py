@@ -116,9 +116,31 @@ class OpenAIProvider(BaseLLMProvider):
                 resp = await self._client.post(
                     "/chat/completions",
                     json=payload,
-                    headers=headers
+                    headers=headers,
                 )
-                resp.raise_for_status()
+                try:
+                    resp.raise_for_status()
+                except httpx.HTTPStatusError as exc:  # type: ignore[name-defined]
+                    # OpenRouter occasionally varies between '/api/v1' and '/v1'.
+                    # If we get 404 and the base URL contains '/api/', try a
+                    # fallback request without the '/api' segment.
+                    if (
+                        exc.response is not None
+                        and exc.response.status_code == 404
+                        and "openrouter.ai" in self.base_url
+                        and "/api/" in self.base_url
+                    ):
+                        alt_base = self.base_url.replace("/api", "", 1)
+                        async with httpx.AsyncClient(base_url=alt_base, timeout=60.0) as alt_client:
+                            alt_resp = await alt_client.post(
+                                "/chat/completions",
+                                json=payload,
+                                headers=headers,
+                            )
+                            alt_resp.raise_for_status()
+                            resp = alt_resp
+                    else:
+                        raise
 
         if not stream:
             return resp.json()
@@ -259,6 +281,7 @@ Please provide a helpful and accurate response based on the context provided."""
         base_headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
         }
 
         # Only apply stealth heuristics for OpenRouter (reduces accidental blocking)
@@ -281,6 +304,8 @@ Please provide a helpful and accurate response based on the context provided."""
 
         return {
             **base_headers,
+            # Standard header plus OpenRouter's documented variant
+            "Referer": referer_hdr,
             "HTTP-Referer": referer_hdr,
             "X-Title": title_hdr,
             "User-Agent": ua_hdr,
