@@ -132,14 +132,14 @@ graph TD
     
     subgraph "Retrieval Strategy"
         DENSE[Dense Search<br/>Qdrant Vector]
-        SPARSE[Sparse Search (optional)]
+        SPARSE_SRCH[Sparse Search (optional)]
         RRF[Reciprocal Rank Fusion (optional)]
     end
     
     HYBRID --> DENSE
-    HYBRID --> SPARSE
+    HYBRID --> SPARSE_SRCH
     DENSE --> RRF
-    SPARSE --> RRF
+    SPARSE_SRCH --> RRF
     
     RRF --> RERANK[Optional Reranking]
     
