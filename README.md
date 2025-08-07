@@ -131,15 +131,15 @@ graph TD
     EMBED --> HYBRID[Hybrid Retrieval]
     
     subgraph "Retrieval Strategy"
-        DENSE[Dense Search - Qdrant Vector]
-        SPARSESRCH[Sparse Search (optional)]
-        RRF[Reciprocal Rank Fusion (optional)]
+        DENSE["Dense Search - Qdrant Vector"]
+        SPARSE_S["Sparse Search optional"]
+        RRF["Reciprocal Rank Fusion optional"]
     end
     
     HYBRID --> DENSE
-    HYBRID --> SPARSESRCH
+    HYBRID --> SPARSE_S
     DENSE --> RRF
-    SPARSESRCH --> RRF
+    SPARSE_S --> RRF
     
     RRF --> RERANK[Optional Reranking]
     
