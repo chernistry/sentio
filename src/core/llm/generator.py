@@ -147,7 +147,10 @@ class LLMGenerator:
         """
         if not state["selected_documents"]:
             logger.warning("No documents selected for generation")
-            set_response(state, "I don't have enough information to answer that question.")
+            set_response(
+                state,
+                "I don't have enough information to answer that question.",
+            )
             yield state
             return
 
@@ -168,14 +171,13 @@ class LLMGenerator:
                     buffer += content
 
                     # Update state with current buffer
-                    new_state = RAGState(**state.dict())
-                    new_state.set_response(buffer)
-
-                    yield new_state
+                    new_state = dict(state)  # shallow copy of TypedDict
+                    set_response(new_state, buffer)
+                    yield new_state  # type: ignore[arg-type]
 
             # Final state update
-            state.set_response(buffer)
-            state.add_metadata("generator_mode", self.mode)
+            set_response(state, buffer)
+            add_metadata(state, "generator_mode", self.mode)
 
             logger.info("Generated streaming response of length %d", len(buffer))
         except Exception as e:
@@ -244,10 +246,24 @@ class LLMGenerator:
         Returns:
             Content string
         """
+        # Try common response shapes from OpenAI-compatible providers
         try:
-            return response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = (
+                response.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+            if content:
+                return content
         except (IndexError, AttributeError):
-            return ""
+            pass
+
+        # Fallbacks for other providers
+        for key in ("content", "text", "output_text", "response"):
+            value = response.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        return ""
 
     def _extract_streaming_content(self, chunk: str) -> str:
         """Extract content from streaming chunk.

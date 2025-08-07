@@ -35,7 +35,7 @@ class ChatHandler:
         self._lock = asyncio.Lock()
         self._cache_manager = get_cache_manager()
 
-    async def _ensure_initialized(self):
+    async def _ensure_initialized(self) -> None:
         """Ensure the graph is initialized (lazy loading)."""
         if self._initialized:
             return
@@ -57,7 +57,7 @@ class ChatHandler:
                         reranker = get_reranker(kind="jina")
                         logger.info("Reranker initialized successfully")
                     except Exception as e:
-                        logger.warning(f"Failed to initialize reranker: {e}")
+                        logger.warning("Failed to initialize reranker: %s", e)
 
                 # Create LLM generator
                 llm_generator = create_generator(
@@ -83,7 +83,7 @@ class ChatHandler:
                 logger.info("RAG graph initialized successfully")
 
             except Exception as e:
-                logger.error(f"Failed to initialize RAG graph: {e}")
+                logger.error("Failed to initialize RAG graph: %s", e)
                 raise
 
     async def process_chat_request(
@@ -112,7 +112,7 @@ class ChatHandler:
         request_start = time.time()
         query_id = str(uuid.uuid4())
 
-        logger.info(f"Processing chat request {query_id}: {question[:100]}...")
+        logger.info("Processing chat request %s", query_id)
 
         try:
             # Check cache first - DISABLED FOR DEBUGGING
@@ -134,7 +134,7 @@ class ChatHandler:
             )
 
             # Prepare RAG state and pass user controls via metadata
-            rag_state = create_initial_state(question)
+            rag_state: RAGState = create_initial_state(question)
             rag_state["metadata"].update({
                 "query_id": query_id,
                 "temperature": temperature,
@@ -145,44 +145,24 @@ class ChatHandler:
 
             # Execute RAG pipeline
             try:
-                result = await self._graph.ainvoke(
+                result: RAGState = await self._graph.ainvoke(  # type: ignore[attr-defined]
                     rag_state,
                     config={"configurable": {"thread_id": query_id}}
                 )
-
-                # DEBUG: Log the result object structure
-                logger.info(f"DEBUG - Result type: {type(result)}")
-                logger.info(f"DEBUG - Result keys: {list(result.keys()) if hasattr(result, 'keys') else 'No keys method'}")
-                if hasattr(result, '__dict__'):
-                    logger.info(f"DEBUG - Result attributes: {list(result.__dict__.keys())}")
                 
-                # Log document counts at each stage
-                retrieved_docs = result.get('retrieved_documents', [])
-                reranked_docs = result.get('reranked_documents', [])
-                selected_docs = result.get('selected_documents', [])
-                
-                logger.info(f"DEBUG - Retrieved documents: {len(retrieved_docs)}")
-                logger.info(f"DEBUG - Reranked documents: {len(reranked_docs)}")
-                logger.info(f"DEBUG - Selected documents: {len(selected_docs)}")
-
                 # Extract response and sources
                 response_text = result.get("response", "")
                 documents = result.get("selected_documents", [])
 
-                logger.info(f"Retrieved {len(documents)} documents from RAG pipeline")
-                logger.info(f"Response text: {response_text[:200]}...")
-
                 # Prepare sources
                 sources = []
-                for i, doc in enumerate(documents):
-                    logger.info(f"Document {i}: text='{doc.text[:100]}...', metadata={doc.metadata}")
+                for doc in documents:
                     sources.append({
                         "text": doc.text,
                         "content": doc.text,  # Add content field for API compatibility
                         "source": doc.metadata.get("source", "unknown"),
                         "score": float(doc.metadata.get("score", 0.0)),
                         "metadata": doc.metadata,
-                        "debug_text_length": len(doc.text),  # Debug info
                     })
 
                 processing_time = time.time() - request_start
@@ -213,7 +193,7 @@ class ChatHandler:
                 return response_data
 
             except Exception as e:
-                logger.warning(f"RAG pipeline failed for {query_id}: {e}")
+                logger.warning("RAG pipeline failed for %s: %s", query_id, e)
 
                 # Try to get cached response
                 cached_response = fallback_manager.get_cached_response(cache_key)
@@ -245,7 +225,7 @@ class ChatHandler:
 
         except Exception as e:
             processing_time = time.time() - request_start
-            logger.error(f"Chat request {query_id} failed completely: {e}")
+            logger.error("Chat request %s failed completely: %s", query_id, e)
 
             return {
                 "answer": "I apologize, but I'm currently experiencing technical difficulties. Please try again in a few moments.",

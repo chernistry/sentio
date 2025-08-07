@@ -307,16 +307,21 @@ class DocumentIngestor:
 
         # Extract text from chunks
         texts = [chunk.text for chunk in chunks]
+        # Short-circuit: skip empty-text chunks to avoid provider failures
+        non_empty = [(i, t) for i, t in enumerate(texts) if (t or "").strip()]
+        if not non_empty:
+            logger.warning("All chunks are empty; skipping embedding generation")
+            return {}
 
         # Generate embeddings
         try:
             # Use embed_async_many method which should be available on all BaseEmbedder implementations
-            embeddings = await self.embedder.embed_async_many(texts)
+            embeddings = await self.embedder.embed_async_many([t for _, t in non_empty])
 
             # Create mapping from document ID to embedding
             doc_embeddings = {
-                chunks[i].id: embedding
-                for i, embedding in enumerate(embeddings)
+                chunks[idx].id: embedding
+                for (idx, _), embedding in zip(non_empty, embeddings, strict=False)
             }
 
             self._stats["embeddings_generated"] += len(embeddings)

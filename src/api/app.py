@@ -256,26 +256,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Rate limiting middleware
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Simple rate limiting middleware."""
+    """Simple IP-based rate limiting with per-endpoint policy."""
     client_ip = request.client.host if request.client else "unknown"
-    
-    # Rate limits: 100 requests per minute for most endpoints, 10 per minute for embed
-    if request.url.path == "/embed":
-        max_requests, window = 10, 60
-    else:
-        max_requests, window = 100, 60
-    
+    path = request.url.path
+    # Per-endpoint policy
+    max_requests, window = (10, 60) if path == "/embed" else (100, 60)
     if not await rate_limiter.is_allowed(client_ip, max_requests, window):
         return Response(
             content=json.dumps({"detail": "Rate limit exceeded"}),
             status_code=429,
-            media_type="application/json"
+            media_type="application/json",
         )
-    
-    return await call_next(request)
+    # Add standard security headers to all responses
+    response = await call_next(request)
+    try:
+        for name, value in SecurityHeaders.get_security_headers().items():
+            # Don't overwrite if already set
+            if name not in response.headers:
+                response.headers[name] = value
+    except Exception:
+        pass
+    return response
 
 # Add comprehensive error handlers
 @app.exception_handler(SentioException)

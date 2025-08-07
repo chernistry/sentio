@@ -13,7 +13,15 @@ from typing import TypeVar
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
-from src.core.graph.state import RAGState, add_retrieved_documents, add_metadata, add_reranked_documents, add_selected_documents, set_response
+from src.core.graph.state import (
+    RAGState,
+    add_retrieved_documents,
+    add_metadata,
+    add_reranked_documents,
+    add_selected_documents,
+    set_response,
+)
+from src.core.llm.generator import LLMGenerator
 from src.core.models.document import Document
 from src.core.rerankers.base import Reranker
 from src.core.retrievers.base import BaseRetriever
@@ -77,10 +85,12 @@ def create_retriever_node(
                 )
                 
                 # Log diagnostic details (truncated for safety)
-                logger.info(f"Retriever - Doc {i}: original_text='{doc.text[:100]}...', "
-                           f"fallback_content='{doc.metadata.get('content', '')[:100] if doc.metadata else ''}...', "
-                           f"final_text='{normalized_doc.text[:100]}...', "
-                           f"metadata_keys={list(doc.metadata.keys()) if doc.metadata else []}")
+                logger.debug(
+                    "Retriever - Doc %d: final_text='%s...', metadata_keys=%s",
+                    i,
+                    (normalized_doc.text or "")[:100],
+                    list(normalized_doc.metadata.keys()) if normalized_doc.metadata else [],
+                )
                 
                 normalized_docs.append(normalized_doc)
 
@@ -89,26 +99,17 @@ def create_retriever_node(
             add_metadata(state, "retriever_type", type(retriever).__name__)
             add_metadata(state, "retrieved_count", len(normalized_docs))
 
-            logger.info("Retrieved %d documents with content normalization", len(normalized_docs))
-            
+            logger.info(
+                "Retrieved %d documents with content normalization",
+                len(normalized_docs),
+            )
             # Log summary of content availability
-            docs_with_text = sum(1 for doc in normalized_docs if doc.text.strip())
-            logger.info(f"Content summary: {docs_with_text}/{len(normalized_docs)} docs have content after normalization")
-            
-            # CRITICAL DEBUG: Verify state was updated correctly
-            logger.info(f"CRITICAL DEBUG - State after retrieval: retrieved_docs={len(state['retrieved_documents'])}")
-            logger.info(f"CRITICAL DEBUG - State object ID: {id(state)}")
-            
-            # Verify documents are actually in the state
-            if len(state['retrieved_documents']) != len(normalized_docs):
-                logger.error(f"CRITICAL ERROR - Document count mismatch! Expected {len(normalized_docs)}, got {len(state['retrieved_documents'])}")
-            
-            # Sample first document to verify content
-            if state['retrieved_documents']:
-                first_doc = state['retrieved_documents'][0]
-                logger.info(f"CRITICAL DEBUG - First doc in state: text_length={len(first_doc.text)}, text_preview='{first_doc.text[:50]}...'")
-            else:
-                logger.error("CRITICAL ERROR - No documents in state after adding them!")
+            docs_with_text = sum(1 for doc in normalized_docs if (doc.text or "").strip())
+            logger.debug(
+                "Content summary: %d/%d docs have content after normalization",
+                docs_with_text,
+                len(normalized_docs),
+            )
             
         except Exception as e:
             logger.error("Error retrieving documents: %s", e)
@@ -144,12 +145,6 @@ def create_reranker_node(
         """
         if not state["retrieved_documents"]:
             logger.warning("No documents to rerank")
-            logger.warning(f"CRITICAL DEBUG - State object ID: {id(state)}")
-            logger.warning(f"CRITICAL DEBUG - State type: {type(state)}")
-            logger.warning(f"CRITICAL DEBUG - State dict keys: {list(state.keys())}")
-            logger.warning(f"CRITICAL DEBUG - Retrieved docs type: {type(state['retrieved_documents'])}")
-            logger.warning(f"CRITICAL DEBUG - Retrieved docs length: {len(state['retrieved_documents'])}")
-            logger.warning(f"CRITICAL DEBUG - Query: {state['query']}")
             return state
 
         logger.info("Reranking %d documents", len(state["retrieved_documents"]))
@@ -171,11 +166,11 @@ def create_reranker_node(
                     metadata=doc.metadata.copy() if doc.metadata else {}
                 )
                 
-                # Log document details for reranking process
-                logger.info(f"Reranker - Input Doc {i}: original_text='{doc.text[:100]}...', "
-                           f"fallback_content='{doc.metadata.get('content', '')[:100] if doc.metadata else ''}...', "
-                           f"final_text='{prepared_doc.text[:100]}...', "
-                           f"has_content={bool(prepared_doc.text.strip())}")
+                logger.debug(
+                    "Reranker - Input Doc %d: has_content=%s",
+                    i,
+                    bool((prepared_doc.text or "").strip()),
+                )
                 
                 prepared_docs.append(prepared_doc)
 
@@ -188,8 +183,11 @@ def create_reranker_node(
 
             # Log reranked results
             for i, doc in enumerate(reranked_docs):
-                logger.info(f"Reranker - Output Doc {i}: text='{doc.text[:100]}...', "
-                           f"score={doc.metadata.get('score', 'N/A')}")
+                logger.debug(
+                    "Reranker - Output Doc %d: score=%s",
+                    i,
+                    doc.metadata.get("score", "N/A"),
+                )
 
             # Update state
             add_reranked_documents(state, reranked_docs)
@@ -197,10 +195,14 @@ def create_reranker_node(
             add_metadata(state, "reranked_count", len(reranked_docs))
 
             logger.info("Reranked to %d documents", len(reranked_docs))
-            
-            # Log content availability after reranking
-            docs_with_content = sum(1 for doc in reranked_docs if doc.text.strip())
-            logger.info(f"Reranker output: {docs_with_content}/{len(reranked_docs)} docs have content")
+            docs_with_content = sum(
+                1 for doc in reranked_docs if (doc.text or "").strip()
+            )
+            logger.debug(
+                "Reranker output: %d/%d docs have content",
+                docs_with_content,
+                len(reranked_docs),
+            )
             
         except Exception as e:
             logger.error("Error reranking documents: %s", e)
@@ -257,25 +259,49 @@ def create_document_selector_node(
 
         if not candidate_docs:
             logger.warning("No documents to select")
-            logger.warning(f"CRITICAL DEBUG - State object ID: {id(state)}")
-            logger.warning(f"CRITICAL DEBUG - Retrieved docs: {len(state['retrieved_documents'])}")
-            logger.warning(f"CRITICAL DEBUG - Reranked docs: {len(state['reranked_documents'])}")
-            logger.warning(f"CRITICAL DEBUG - Query: {state['query']}")
             return state
 
         logger.info("Selecting documents from %d candidates", len(candidate_docs))
 
         try:
-            # Token counting and document selection with proper text content
-            selected_docs = []
+            # Respect per-request top_k override
+            effective_top_k = (
+                int(state.get("metadata", {}).get("user_top_k", top_k))
+                if isinstance(state.get("metadata", {}).get("user_top_k", top_k), (int, float))
+                else top_k
+            )
+
+            # Prefer higher-scored documents if available
+            sorted_candidates = sorted(
+                candidate_docs,
+                key=lambda d: float(d.metadata.get("score", 0.0) or 0.0),
+                reverse=True,
+            )
+
+            # Deduplicate by id while preserving order
+            seen_ids: set[str] = set()
+            unique_candidates: list[Document] = []
+            for doc in sorted_candidates:
+                if doc.id and doc.id in seen_ids:
+                    continue
+                if doc.id:
+                    seen_ids.add(doc.id)
+                unique_candidates.append(doc)
+
+            # Token counting and selection
+            selected_docs: list[Document] = []
             total_tokens = 0
 
-            for i, doc in enumerate(candidate_docs[:top_k]):
+            for i, doc in enumerate(unique_candidates[:effective_top_k]):
                 # Determine the text to use for token counting and final selection
                 text_to_use = doc.text
                 if not text_to_use and doc.metadata and 'content' in doc.metadata:
                     text_to_use = doc.metadata['content']
-                    logger.info(f"Selector - Doc {i}: Using fallback content from metadata")
+                    logger.debug("Selector - Doc %d: Using fallback content from metadata", i)
+                # Skip empty documents
+                if not text_to_use or not str(text_to_use).strip():
+                    logger.debug("Selector - Doc %d: Skipping empty content", i)
+                    continue
                 
                 # Create a new document instance with proper text
                 selected_doc = Document(
@@ -287,20 +313,27 @@ def create_document_selector_node(
                 # Approximate token count (4 chars ≈ 1 token)
                 doc_tokens = len(text_to_use) // 4
 
-                logger.info(f"Selector - Doc {i}: original_text='{doc.text[:100]}...', "
-                           f"fallback_content='{doc.metadata.get('content', '')[:100] if doc.metadata else ''}...', "
-                           f"final_text='{selected_doc.text[:100]}...', "
-                           f"text_length={len(text_to_use)}, "
-                           f"estimated_tokens={doc_tokens}, "
-                           f"current_total={total_tokens}")
+                logger.debug(
+                    "Selector - Doc %d: text_len=%d, est_tokens=%d, current_total=%d",
+                    i,
+                    len(text_to_use),
+                    doc_tokens,
+                    total_tokens,
+                )
 
                 if total_tokens + doc_tokens <= max_tokens:
                     selected_docs.append(selected_doc)
                     total_tokens += doc_tokens
-                    logger.info(f"Selector - Doc {i}: SELECTED (new_total={total_tokens})")
+                    logger.debug(
+                        "Selector - Doc %d: SELECTED (new_total=%d)", i, total_tokens
+                    )
                 else:
                     # If we can't fit the whole document, we're done
-                    logger.info(f"Selector - Doc {i}: REJECTED (would exceed max_tokens={max_tokens})")
+                    logger.debug(
+                        "Selector - Doc %d: REJECTED (would exceed max_tokens=%d)",
+                        i,
+                        max_tokens,
+                    )
                     break
 
             # Update state
@@ -309,15 +342,12 @@ def create_document_selector_node(
             add_metadata(state, "selected_tokens", total_tokens)
 
             logger.info("Selected %d documents (%d tokens)", len(selected_docs), total_tokens)
-            
-            # Log final selection summary
-            docs_with_content = sum(1 for doc in selected_docs if doc.text.strip())
-            logger.info(f"Selection summary: {docs_with_content}/{len(selected_docs)} selected docs have content")
-            
-            # Log each selected document's content snippet
-            for i, doc in enumerate(selected_docs):
-                logger.info(f"Selected Doc {i}: text='{doc.text[:100]}...', "
-                           f"metadata_keys={list(doc.metadata.keys()) if doc.metadata else []}")
+            docs_with_content = sum(1 for doc in selected_docs if (doc.text or "").strip())
+            logger.debug(
+                "Selection summary: %d/%d selected docs have content",
+                docs_with_content,
+                len(selected_docs),
+            )
                            
         except Exception as e:
             logger.error("Error selecting documents: %s", e)

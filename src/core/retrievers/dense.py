@@ -85,12 +85,13 @@ class DenseRetriever(BaseRetriever):
                 if isinstance(metadata_content, dict):
                     text = metadata_content.get("content", "")
             
-            # Log content resolution for debugging
-            logger.info(f"DenseRetriever - Point {i}: "
-                       f"payload_text='{payload.get('text', '')[:50]}...', "
-                       f"payload_content='{payload.get('content', '')[:50]}...', "
-                       f"final_text='{text[:50]}...', "
-                       f"payload_keys={list(payload.keys())}")
+            # Log content resolution for debugging (debug-level to reduce noise)
+            logger.debug(
+                "DenseRetriever - Point %d: final_text='%s...', keys=%s",
+                i,
+                (text or "")[:50],
+                list(payload.keys()),
+            )
             
             # Create document with proper metadata structure
             metadata = {
@@ -110,6 +111,9 @@ class DenseRetriever(BaseRetriever):
                 )
             )
             
-        logger.info(f"DenseRetriever: Retrieved {len(docs)} documents, "
-                   f"{sum(1 for doc in docs if doc.text.strip())} with content")
+        logger.info(
+            "DenseRetriever: Retrieved %d documents, %d with content",
+            len(docs),
+            sum(1 for doc in docs if (doc.text or "").strip()),
+        )
         return docs

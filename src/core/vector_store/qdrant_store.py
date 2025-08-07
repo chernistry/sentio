@@ -205,11 +205,11 @@ class QdrantStore(VectorStore):
         result = self.delete(document_ids)
         return result
 
-    async def get_collection_info(self) -> dict[str, Any]:
-        """Get collection information.
+    def get_collection_info(self) -> dict[str, Any]:
+        """Get collection information (sync).
         
         Returns:
-            Collection information
+            Collection information.
         """
         collection_info = self._client.get_collection(self.collection_name)
         return {
@@ -219,32 +219,15 @@ class QdrantStore(VectorStore):
             "points_count": collection_info.points_count,
         }
 
-    async def health_check(self) -> bool:
-        """Check if the vector store is healthy.
-        
-        Returns:
-            True if healthy, False otherwise
-        """
-        try:
-            self._client.get_collections()
-            return True
-        except Exception as exc:
-            logger.warning("Qdrant health-check failed: %s", exc)
-            return False
+    # NOTE: keep only sync health_check below to avoid duplicate definitions.
 
-    async def create_collection(
+    def create_collection(
         self,
         collection_name: str,
         vector_size: int,
-        distance: str = "Cosine"
+        distance: str = "Cosine",
     ) -> None:
-        """Create a new collection.
-        
-        Args:
-            collection_name: Name of the collection
-            vector_size: Size of vectors
-            distance: Distance metric
-        """
+        """Create a new collection (sync)."""
         self._client.create_collection(
             collection_name=collection_name,
             vectors_config=rest.VectorParams(
@@ -253,35 +236,20 @@ class QdrantStore(VectorStore):
             ),
         )
 
-    async def delete_collection(self, collection_name: str) -> None:
-        """Delete a collection.
-        
-        Args:
-            collection_name: Name of the collection to delete
-        """
+    def delete_collection(self, collection_name: str) -> None:
+        """Delete a collection (sync)."""
         self._client.delete_collection(collection_name)
 
-    async def collection_exists(self, collection_name: str) -> bool:
-        """Check if a collection exists.
-        
-        Args:
-            collection_name: Name of the collection
-            
-        Returns:
-            True if collection exists
-        """
+    def collection_exists(self, collection_name: str) -> bool:
+        """Check if a collection exists (sync)."""
         try:
             self._client.get_collection(collection_name)
             return True
         except Exception:
             return False
 
-    async def get_document_count(self) -> int:
-        """Get the number of documents in the collection.
-        
-        Returns:
-            Number of documents
-        """
+    def get_document_count(self) -> int:
+        """Get the number of documents in the collection (sync)."""
         collection_info = self._client.get_collection(self.collection_name)
         return collection_info.points_count
 
