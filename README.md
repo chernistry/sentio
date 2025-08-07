@@ -122,7 +122,7 @@ graph TD
 
 ```mermaid
 graph TD
-    START([Query Input]) --> VALIDATE[Input Validation<br/>& Sanitization]
+    START([Query Input]) --> VALIDATE[Input Validation and Sanitization]
     VALIDATE --> CACHE_CHECK{Cache Hit?}
     
     CACHE_CHECK -->|Hit| CACHE_RETURN[Return Cached Result]
@@ -131,22 +131,22 @@ graph TD
     EMBED --> HYBRID[Hybrid Retrieval]
     
     subgraph "Retrieval Strategy"
-        DENSE[Dense Search<br/>Qdrant Vector]
-        SPARSE_SRCH[Sparse Search (optional)]
+        DENSE[Dense Search - Qdrant Vector]
+        SPARSESRCH[Sparse Search (optional)]
         RRF[Reciprocal Rank Fusion (optional)]
     end
     
     HYBRID --> DENSE
-    HYBRID --> SPARSE_SRCH
+    HYBRID --> SPARSESRCH
     DENSE --> RRF
-    SPARSE_SRCH --> RRF
+    SPARSESRCH --> RRF
     
     RRF --> RERANK[Optional Reranking]
     
     subgraph "Reranking Pipeline"
-        CROSS[Cross-Encoder<br/>Reranking]
-        MMR[Maximal Marginal<br/>Relevance]
-        FILTER[Relevance<br/>Filtering]
+        CROSS[Cross-Encoder Reranking]
+        MMR[Maximal Marginal Relevance]
+        FILTER[Relevance Filtering]
     end
     
     RERANK --> CROSS
@@ -154,7 +154,7 @@ graph TD
     MMR --> FILTER
     
     FILTER --> CONTEXT[Context Assembly]
-    CONTEXT --> GENERATE[LLM Generation<br/>with fallbacks]
+    CONTEXT --> GENERATE[LLM Generation with fallbacks]
     
     GENERATE --> RESPONSE[Response Assembly]
     RESPONSE --> CACHE_STORE[Cache Result]
