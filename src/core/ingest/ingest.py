@@ -452,6 +452,36 @@ class DocumentIngestor:
         """Get current ingestion statistics."""
         return self._stats.copy()
 
+    async def ingest_document(self, document: Document) -> dict[str, Any]:
+        """Ingest a single in-memory document end-to-end.
+
+        Args:
+            document: Document to chunk, embed and store.
+
+        Returns:
+            Minimal stats for the single-document ingestion.
+        """
+        # Ensure components are initialized
+        if not all([self.chunker, self.embedder, self.vector_store]):
+            await self.initialize()
+
+        # Chunk
+        assert self.chunker is not None
+        chunks = self.chunker.split([document])
+
+        # Embed
+        embeddings = await self._generate_embeddings(chunks)
+
+        # Store
+        await self._store_chunks_with_embeddings(chunks, embeddings)
+
+        return {
+            "documents_processed": 1,
+            "chunks_created": len(chunks),
+            "embeddings_generated": len(embeddings),
+            "bytes_processed": len(document.text.encode("utf-8", errors="ignore")),
+        }
+
 
 async def ingest_directory(
     data_dir: str | Path,

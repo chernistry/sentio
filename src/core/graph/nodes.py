@@ -51,8 +51,14 @@ def create_retriever_node(
         logger.info("Retrieving documents for query: %s", state["query"])
 
         try:
+            # Allow per-request override from metadata
+            effective_top_k = (
+                int(state.get("metadata", {}).get("user_top_k", top_k))
+                if isinstance(state.get("metadata", {}).get("user_top_k", top_k), (int, float))
+                else top_k
+            )
             # Retrieve documents
-            docs = retriever.retrieve(state["query"], top_k=top_k)
+            docs = retriever.retrieve(state["query"], top_k=effective_top_k)
 
             # Create new document instances with proper text content
             normalized_docs = []

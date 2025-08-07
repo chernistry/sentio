@@ -74,7 +74,7 @@ class ChatHandler:
                     llm=llm_generator,
                     retrieval_top_k=settings.top_k_retrieval,
                     reranking_top_k=settings.top_k_rerank,
-                    selection_top_k=5,  # Final documents for generation
+                    selection_top_k=settings.selection_top_k,
                     max_tokens=2000,
                 )
 
@@ -133,12 +133,13 @@ class ChatHandler:
                 question, {"top_k": top_k, "temperature": temperature}
             )
 
-            # Prepare RAG state
+            # Prepare RAG state and pass user controls via metadata
             rag_state = create_initial_state(question)
             rag_state["metadata"].update({
                 "query_id": query_id,
                 "temperature": temperature,
                 "request_timestamp": request_start,
+                "user_top_k": top_k,
                 **(metadata or {}),
             })
 

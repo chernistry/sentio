@@ -128,7 +128,7 @@ class ChatRequest(BaseModel):
         ..., min_length=1, max_length=2000, description="User's question"
     )
     history: list[dict[str, str]] | None = Field(
-        default=[], description="Chat history"
+        default_factory=list, description="Chat history"
     )
     top_k: int | None = Field(
         default=3, ge=1, le=20, description="Number of results to return"
@@ -492,23 +492,14 @@ async def embed_document(
             metadata=metadata
         )
 
-        # Process the single document (this will chunk, embed, and store)
-        # Run chunking in thread pool to avoid blocking event loop for large documents
-        import asyncio
-        loop = asyncio.get_event_loop()
-        chunks = await loop.run_in_executor(None, ingestor.chunker.split, [doc])
-
-        # Generate embeddings for chunks
-        doc_embeddings = await ingestor._generate_embeddings(chunks)
-
-        # Store chunks with embeddings
-        await ingestor._store_chunks_with_embeddings(chunks, doc_embeddings)
+        # Use public ingestion API to process a single document
+        result = await ingestor.ingest_document(doc)
 
         return {
             "status": "success",
             "id": doc_id,
-            "chunks_created": len(chunks),
-            "embeddings_generated": len(doc_embeddings)
+            "chunks_created": result.get("chunks_created", 0),
+            "embeddings_generated": result.get("embeddings_generated", 0),
         }
 
     except Exception as e:

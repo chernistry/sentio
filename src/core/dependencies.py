@@ -61,9 +61,8 @@ class DependencyContainer:
         if self._vector_store is None:
             try:
                 embedder = await self.get_embedder()
-                # Use a default vector size for now to avoid accessing embedder.dimension
-                # which might cause issues during initialization
-                vector_size = 1024  # Default size for jina-embeddings-v3
+                # Use real embedder dimension when available
+                vector_size = getattr(embedder, "dimension", 1024)
                 self._vector_store = get_vector_store(
                     name=settings.vector_store_name,
                     collection_name=settings.collection_name,
@@ -141,9 +140,8 @@ class DependencyContainer:
         if self._async_vector_store is None:
             try:
                 embedder = await self.get_embedder()
-                # Use a default vector size for now to avoid accessing embedder.dimension
-                # which might cause issues during initialization
-                vector_size = 1024  # Default size for jina-embeddings-v3
+                # Use real embedder dimension when available
+                vector_size = getattr(embedder, "dimension", 1024)
                 self._async_vector_store = await get_async_vector_store(
                     name=settings.vector_store_name,
                     collection_name=settings.collection_name,
