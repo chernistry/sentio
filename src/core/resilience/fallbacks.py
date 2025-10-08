@@ -203,13 +203,34 @@ class EmbeddingFallback:
 
 
 class LLMFallback:
-    """Fallback strategies for LLM generation."""
+    """Fallback strategies for LLM generation (templates from prompts/)."""
 
     def __init__(self):
+        from pathlib import Path
+        base = Path(__file__).resolve().parents[3] / "prompts"
+
+        def _load_prompt(name: str, default: str) -> str:
+            try:
+                path = base / name
+                if path.exists():
+                    return path.read_text(encoding="utf-8").strip()
+            except Exception as e:
+                logger.warning(f"Failed to load prompt '{name}': {e}")
+            return default
+
         self.template_responses = {
-            "default": "I'm sorry, but I'm currently unable to process your request due to a temporary service issue. Please try again later.",
-            "search": "I found some information related to your query, but I'm unable to provide a detailed response at the moment. Please try again later.",
-            "error": "An error occurred while processing your request. Please check your input and try again.",
+            "default": _load_prompt(
+                "fallback_default.md",
+                "I'm sorry, but I'm currently unable to process your request due to a temporary service issue. Please try again later.",
+            ),
+            "search": _load_prompt(
+                "fallback_search.md",
+                "I found some information related to your query, but I'm unable to provide a detailed response at the moment. Please try again later.",
+            ),
+            "error": _load_prompt(
+                "fallback_error.md",
+                "An error occurred while processing your request. Please check your input and try again.",
+            ),
         }
 
     async def generate_fallback_response(

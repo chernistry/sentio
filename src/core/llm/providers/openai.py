@@ -13,6 +13,7 @@ from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 from src.core.llm.providers import register_provider
 from src.core.llm.providers.base import BaseLLMProvider
 from src.core.models.document import Document
+from src.core.llm.prompt_builder import PromptBuilder
 from src.utils.settings import settings
 
 # Optional dependency – generates realistic User-Agent strings for header stealthing.
@@ -200,37 +201,32 @@ class OpenAIProvider(BaseLLMProvider):
         documents: List[Document],
         history: List[dict]
     ) -> List[dict]:
-        """Build messages for the chat completion.
-        
-        Args:
-            query: The user's query
-            documents: List of relevant documents
-            history: Conversation history
-            
-        Returns:
-            List of messages for the API
-        """
-        messages = []
-        
-        # Add system message with context
+        """Build messages for the chat completion using PromptBuilder templates."""
+        builder = PromptBuilder()
+
+        # Build system message
+        system_msg = builder.build_system_message()
+        messages: List[dict] = [{"role": "system", "content": system_msg}]
+
+        # Add conversation history if provided
+        if history:
+            messages.extend(history)
+
+        # Prepare simple context from documents (join text, fall back to metadata.content)
         if documents:
-            context = "\n\n".join([doc.text for doc in documents])
-            system_message = f"""You are a helpful assistant. Use the following context to answer the user's question:
-
-Context:
-{context}
-
-Please provide a helpful and accurate response based on the context provided."""
-            messages.append({"role": "system", "content": system_message})
+            ctx_segments: List[str] = []
+            for doc in documents:
+                text = doc.text or doc.metadata.get("content", "") or ""
+                if text:
+                    ctx_segments.append(text)
+            context = "\n\n".join(ctx_segments)
         else:
-            messages.append({"role": "system", "content": "You are a helpful assistant."})
-        
-        # Add conversation history
-        messages.extend(history)
-        
-        # Add current query
-        messages.append({"role": "user", "content": query})
-        
+            context = ""
+
+        # Build generation prompt
+        user_prompt = builder.build_generation_prompt(query=query, context=context, mode="balanced")
+        messages.append({"role": "user", "content": user_prompt})
+
         return messages
 
     async def health_check(self) -> bool:
