@@ -191,37 +191,67 @@ class LLMGenerator:
         await self.chat_adapter.close()
 
     def _prepare_context(self, documents: list[Document]) -> str:
-        """Prepare context from documents.
-        
+        """Prepare an enumerated, citation-friendly context from documents.
+
+        The context is formatted as numbered entries so the LLM can cite using
+        bracketed references like [1], [2]. Each entry includes source, optional
+        page, and any available score for transparency.
+
         Args:
             documents: Retrieved documents
-            
+
         Returns:
             Formatted context string
         """
         if not documents:
-            return ''
-        
-        # Add logging to verify document structure
+            return ""
+
+        # Log document structure to aid debugging in production
         for i, doc in enumerate(documents):
-            logger.info(f"Document {i}: text='{doc.text[:100] if doc.text else ''}...', metadata_content='{doc.metadata.get('content', '')[:100] if doc.metadata.get('content') else ''}...'")
-        
-        context_parts = []
-        for i, doc in enumerate(documents):
-            # Get content from either text field or metadata.content
-            content = doc.text or doc.metadata.get('content', '')
+            text_snip = (doc.text or doc.metadata.get("content", ""))[:100]
+            logger.debug(
+                "Context doc %d: src=%s, text='%s...'",
+                i,
+                doc.metadata.get("source", f"doc-{i+1}"),
+                text_snip,
+            )
+
+        context_parts: list[str] = []
+        for idx, doc in enumerate(documents, start=1):
+            # Prefer explicit text, fall back to metadata.content
+            content = doc.text or doc.metadata.get("content", "")
             if not content:
-                logger.warning(f"Document {i} has no content in either text or metadata.content")
+                logger.warning("Selected document %d has no content", idx)
                 continue
-                
-            source = doc.metadata.get('source', f'Document {i+1}')
-            context_parts.append(f'Source: {source}\nContent: {content}')
-        
+
+            source = str(doc.metadata.get("source", f"Document {idx}"))
+            page = doc.metadata.get("page") or doc.metadata.get("page_number")
+            score = (
+                doc.metadata.get("score")
+                or doc.metadata.get("hybrid_score")
+                or doc.metadata.get("rerank_score")
+                or doc.metadata.get("dense_score")
+            )
+
+            header_bits = [f"[{idx}] Source: {source}"]
+            if page is not None:
+                header_bits.append(f"page: {page}")
+            if isinstance(score, (int, float)):
+                header_bits.append(f"score: {float(score):.3f}")
+            header = " | ".join(header_bits)
+
+            context_parts.append(f"{header}\n{content}")
+
         if not context_parts:
             logger.warning("No content available in any retrieved documents")
-            return 'No content available in retrieved documents.'
-            
-        return '\n\n'.join(context_parts) + '\n\nUse this context to answer accurately, focusing on key facts.'
+            return "No content available in retrieved documents."
+
+        # Add an instruction footer to steer the model to use bracketed citations
+        footer = (
+            "\n\nUse the numbered sources above. Cite with [n] after facts. "
+            "If information is insufficient, say what is missing."
+        )
+        return "\n\n".join(context_parts) + footer
 
     def _get_temperature_for_mode(self) -> float:
         """Get temperature based on generation mode.

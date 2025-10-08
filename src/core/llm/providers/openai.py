@@ -289,8 +289,14 @@ Please provide a helpful and accurate response based on the context provided."""
             return base_headers
 
         # Generate stealth headers
-        referer_hdr = "https://sentio.ai/"
-        title_hdr = f"Sentio-{_random_suffix()}"
+        # Prefer settings values when available
+        try:
+            referer_hdr = settings.openrouter_referer or "https://sentio.ai/"
+            title_prefix = settings.openrouter_title or "Sentio"
+        except Exception:
+            referer_hdr = "https://sentio.ai/"
+            title_prefix = "Sentio"
+        title_hdr = f"{title_prefix}-{_random_suffix()}"
 
         faker = _get_faker()
         if faker is not None:
