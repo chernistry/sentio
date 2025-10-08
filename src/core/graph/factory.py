@@ -26,14 +26,17 @@ logger = logging.getLogger(__name__)
 
 class GraphConfig:
     """Configuration for building a LangGraph RAG pipeline.
-    
-    This class holds the configuration for building a LangGraph RAG pipeline,
-    including the retriever, reranker, and LLM components.
-    
+
+    This class holds the configuration for the RAG pipeline, including the
+    retriever and optional reranker. Note: generation currently uses the
+    built-in ``LLMGenerator`` created from environment via the factory; the
+    ``llm`` parameter is reserved for legacy LangChain compatibility and not
+    used by the graph assembly path.
+
     Attributes:
         retriever: The retriever component
         reranker: Optional reranker component
-        llm: The language model for generation
+        llm: Reserved (legacy); not used by current generator factory
         retrieval_top_k: Number of documents to retrieve
         reranking_top_k: Number of documents to return after reranking
         selection_top_k: Number of documents to select for generation

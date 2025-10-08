@@ -36,6 +36,12 @@ def create_retriever_from_env(
     retrieval_top_k = int(os.getenv("RETRIEVAL_TOP_K", "10"))
     rrf_k = int(os.getenv("RRF_K", "20"))
     bm25_variant = os.getenv("BM25_VARIANT", "okapi").lower()
+    fusion_method = os.getenv("FUSION_METHOD", "rrf").lower()  # rrf | weighted_rrf | comb_sum
+    try:
+        dense_weight = float(os.getenv("DENSE_WEIGHT", "0.5"))
+        sparse_weight = float(os.getenv("SPARSE_WEIGHT", "0.5"))
+    except ValueError:
+        dense_weight, sparse_weight = 0.5, 0.5
 
     if collection_name is None:
         collection_name = os.getenv("COLLECTION_NAME", "Sentio_docs")
@@ -182,6 +188,9 @@ def create_retriever_from_env(
             rrf_k=rrf_k,
             scorer_plugins=scorer_plugins,
             sparse_retriever=sparse_retriever,
+            fusion_method=fusion_method,
+            dense_weight=dense_weight,
+            sparse_weight=sparse_weight,
         )
 
     raise ValueError(f"Unknown retrieval strategy: {strategy}")
