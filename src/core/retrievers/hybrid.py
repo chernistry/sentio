@@ -46,12 +46,18 @@ class HybridRetrieverPlugin:
 
 
 class HybridRetriever(BaseRetriever):
-    """Combine dense retrieval with lexical BM25 using RRF fusion.
-    
-    This retriever combines vector similarity search with lexical BM25 search,
-    merging results using Reciprocal Rank Fusion (RRF). Additional scoring 
-    plugins can be provided to further enhance retrieval quality.
-    
+    """Combine dense + sparse retrieval with configurable fusion.
+
+    Supports multiple fusion methods between dense vector similarity and
+    lexical BM25 results:
+
+    - "rrf": classic Reciprocal Rank Fusion (unweighted)
+    - "weighted_rrf": RRF with separate weights for dense/sparse signals
+    - "comb_sum": score-based fusion (min–max normalized) with weights
+
+    Additional scoring plugins can augment the fusion with extra signals
+    (e.g., semantic re-similarity, keyword overlap, MMR diversification).
+
     Args:
         dense_retriever: The DenseRetriever instance for vector search
         corpus_docs: Optional list of documents to build BM25 index from
@@ -60,6 +66,9 @@ class HybridRetriever(BaseRetriever):
         retriever_plugins: Optional list of additional retriever plugins
         use_pyserini: Whether to use Pyserini for BM25 if available
         sparse_retriever: Optional pre-configured sparse retriever to use
+        fusion_method: Fusion method ("rrf", "weighted_rrf", "comb_sum")
+        dense_weight: Weight for dense signal (weighted_rrf/comb_sum)
+        sparse_weight: Weight for sparse signal (weighted_rrf/comb_sum)
     """
 
     def __init__(
@@ -198,19 +207,56 @@ class HybridRetriever(BaseRetriever):
         # Combine dense results prioritizing cache hits
         all_dense_hits = dense_cache_hits + dense_hits
 
-        # Add dense ranking signals
-        for rank, doc in enumerate(all_dense_hits):
-            fused_scores[doc.id] += 1 / (self._rrf_k + rank)
-            # Store dense score in metadata
-            doc.metadata["dense_score"] = doc.metadata.get("score", 0.0)
+        # Helper: min–max normalization for score maps
+        def _normalize_map(values: dict[str, float]) -> dict[str, float]:
+            if not values:
+                return {}
+            vmin = min(values.values())
+            vmax = max(values.values())
+            if vmax <= vmin:
+                # All equal – treat as fully informative to avoid dropping the signal
+                return {k: 1.0 for k in values}
+            scale = vmax - vmin
+            return {k: (v - vmin) / scale for k, v in values.items()}
 
-        # Add sparse ranking signals
-        for rank, (doc_id, score) in enumerate(sparse_hits):
-            fused_scores[doc_id] += 1 / (self._rrf_k + rank)
+        # Dense signal
+        if self.fusion_method in ("rrf", "weighted_rrf"):
+            for rank, doc in enumerate(all_dense_hits):
+                weight = 1.0 if self.fusion_method == "rrf" else float(self.dense_weight)
+                fused_scores[doc.id] += weight * (1.0 / (self._rrf_k + rank))
+                # Preserve raw dense similarity for optional downstream use
+                doc.metadata["dense_score"] = doc.metadata.get("score", 0.0)
+        elif self.fusion_method == "comb_sum":
+            dense_raw: dict[str, float] = {}
+            for doc in all_dense_hits:
+                raw = float(doc.metadata.get("score", 0.0))
+                dense_raw[doc.id] = raw
+                doc.metadata["dense_score"] = raw
+            for doc_id, nscore in _normalize_map(dense_raw).items():
+                fused_scores[doc_id] += float(self.dense_weight) * nscore
+        else:
+            raise ValueError(f"Unknown fusion_method: {self.fusion_method}")
 
-        # Add plugin retriever signals
-        for rank, (doc_id, score) in enumerate(plugin_hits):
-            fused_scores[doc_id] += 1 / (self._rrf_k + rank)
+        # Sparse signal
+        if self.fusion_method in ("rrf", "weighted_rrf"):
+            for rank, (doc_id, _score) in enumerate(sparse_hits):
+                weight = 1.0 if self.fusion_method == "rrf" else float(self.sparse_weight)
+                fused_scores[doc_id] += weight * (1.0 / (self._rrf_k + rank))
+        elif self.fusion_method == "comb_sum":
+            sparse_raw: dict[str, float] = {}
+            for doc in sparse_docs:
+                sparse_raw[doc.id] = float(doc.metadata.get("bm25_score", 0.0))
+            for doc_id, nscore in _normalize_map(sparse_raw).items():
+                fused_scores[doc_id] += float(self.sparse_weight) * nscore
+
+        # External retriever plugins
+        if self.fusion_method in ("rrf", "weighted_rrf"):
+            for rank, (doc_id, _score) in enumerate(plugin_hits):
+                fused_scores[doc_id] += 1.0 / (self._rrf_k + rank)
+        elif self.fusion_method == "comb_sum":
+            plugin_raw = {doc_id: float(score) for doc_id, score in plugin_hits}
+            for doc_id, nscore in _normalize_map(plugin_raw).items():
+                fused_scores[doc_id] += 0.2 * nscore  # light weight for external signals
 
         # Build complete document map from all sources
         id_to_doc: dict[str, Document] = {}
