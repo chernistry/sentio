@@ -29,6 +29,7 @@ class PromptBuilder:
 
     _retrieve_template: str | None = None
     _summarise_template: str | None = None
+    _verify_template: str | None = None
     _profile_template: str | None = None
 
     _MODE_INSTRUCTIONS: dict[_Mode, str] = {
@@ -68,6 +69,25 @@ class PromptBuilder:
             System message text
         """
         return self._get_profile_template()
+
+    def build_verify_prompt(self, query: str, context: str, answer: str) -> str:
+        """Return the verification prompt instructing the model to audit the answer.
+
+        Args:
+            query: Original user question
+            context: Numbered context string used for generation
+            answer: The model's answer to verify
+
+        Returns:
+            Formatted verification prompt text
+        """
+        template = self._get_verify_template()
+        return (
+            template
+            .replace("{query}", query)
+            .replace("{context}", context)
+            .replace("{answer}", answer)
+        )
 
     # ------------------------------------------------------------------
     # Internal template loaders (lazy)
@@ -121,3 +141,22 @@ class PromptBuilder:
                 fallback="You are Sentio, an enterprise–grade AI system.",
             )
         return cast("str", cls._profile_template)
+
+    @classmethod
+    def _get_verify_template(cls) -> str:
+        if cls._verify_template is None:
+            cls._verify_template = cls._load_template(
+                "verify.md",
+                fallback=(
+                    "You are a rigorous answer verifier. Audit the answer against the numbered Context.\n\n"
+                    "Output strict JSON with fields: verdict (pass|warn|fail), notes (array of strings), "
+                    "citations_ok (boolean), revised_answer (optional string).\n\n"
+                    "Rules:\n"
+                    "- Every factual claim relying on context must include bracketed citations [n] that exist in Context.\n"
+                    "- If citations are missing or unsupported, set verdict to 'fail' and provide revised_answer that fixes issues.\n"
+                    "- If minor issues (style/format) exist but facts are supported, set verdict to 'warn' and include notes.\n"
+                    "- If adequate and properly cited, set verdict to 'pass'.\n\n"
+                    "Question: {query}\n\nContext:\n{context}\n\nAnswer:\n{answer}\n\nJSON:"
+                ),
+            )
+        return cast("str", cls._verify_template)

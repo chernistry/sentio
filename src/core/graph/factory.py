@@ -13,6 +13,7 @@ from langgraph.graph import END, StateGraph
 from src.core.graph.nodes import (
     create_document_selector_node,
     create_generator_node,
+    create_verifier_node,
     create_reranker_node,
     create_retriever_node,
 )
@@ -169,7 +170,16 @@ def build_basic_graph(config: GraphConfig | dict[str, Any] | None = None) -> Sta
     # Add generator node and connect to selector
     graph.add_node("generator", generator_node)
     graph.add_edge("selector", "generator")
-    graph.add_edge("generator", END)
+
+    # Optional verifier stage (on by default)
+    use_verifier = os.getenv("USE_VERIFIER", "true").lower() == "true"
+    if use_verifier:
+        verifier_node = create_verifier_node()
+        graph.add_node("verifier", verifier_node)
+        graph.add_edge("generator", "verifier")
+        graph.add_edge("verifier", END)
+    else:
+        graph.add_edge("generator", END)
 
     # Set the entry point
     graph.set_entry_point("retriever")

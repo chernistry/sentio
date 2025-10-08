@@ -22,6 +22,7 @@ from src.core.graph.state import (
     set_response,
 )
 from src.core.llm.generator import LLMGenerator
+from src.core.llm.answer_verifier import AnswerVerifier
 from src.core.models.document import Document
 from src.core.rerankers.base import Reranker
 from src.core.retrievers.base import BaseRetriever
@@ -431,3 +432,47 @@ def create_generator_node(
         return state
 
     return generate_response_node
+
+
+def create_verifier_node() -> NodeFunction[RAGState]:
+    """Create an answer verification node.
+
+    Verifies the generated response against the selected documents. On 'fail',
+    uses the revised answer when available. Always annotates metadata with
+    verification verdict and notes.
+    """
+
+    verifier = AnswerVerifier()
+
+    async def verify_node(state: RAGState) -> RAGState:
+        if not state.get("response"):
+            return state
+
+        # Build a numbered context similar to generator context
+        context_parts: list[str] = []
+        for idx, doc in enumerate(state.get("selected_documents", []), start=1):
+            text = doc.text or doc.metadata.get("content", "")
+            if not text:
+                continue
+            source = str(doc.metadata.get("source", f"Document {idx}"))
+            header = f"[{idx}] Source: {source}"
+            context_parts.append(f"{header}\n{text}")
+        context = "\n\n".join(context_parts)
+
+        try:
+            result = await verifier.verify(
+                query=state["query"],
+                context=context,
+                answer=state["response"],
+            )
+            add_metadata(state, "verify_verdict", result.get("verdict", "warn"))
+            add_metadata(state, "verify_citations_ok", bool(result.get("citations_ok", False)))
+            add_metadata(state, "verify_notes", result.get("notes", []))
+            if result.get("verdict") == "fail" and result.get("revised_answer"):
+                set_response(state, str(result["revised_answer"]))
+        except Exception as e:
+            logger.warning("Verification failed: %s", e)
+
+        return state
+
+    return verify_node
