@@ -169,7 +169,7 @@ sequenceDiagram
 
 ```bash
 # 1. Clone and configure
-git clone https://github.com/chernistry/sentio-vnext.git
+git clone https://github.com/chernistry/sentio.git
 cd sentio-vnext
 
 # 2. Set up secrets

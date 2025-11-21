@@ -375,10 +375,8 @@ def create_document_selector_node(
 
 
 def create_generator_node(
-    llm: BaseChatModel | None = None,
-    prompt_template: ChatPromptTemplate | None = None,
-    mode: str = "balanced",
-    max_tokens: int = 1024,
+    generator: LLMGenerator,
+    prompt_template: ChatPromptTemplate,
 ) -> NodeFunction[RAGState]:
     """Create a generator node for the RAG pipeline.
     
@@ -392,10 +390,10 @@ def create_generator_node(
         A function that takes a RAGState and returns an updated RAGState
     """
     # Import here to avoid circular imports
-    from src.core.llm.factory import create_generator
+    # from src.core.llm.factory import create_generator
 
     # Create LLM generator
-    generator = create_generator(mode=mode, max_tokens=max_tokens)
+    # generator = create_generator(mode=mode, max_tokens=max_tokens)
 
     async def generate_response_node(state: RAGState) -> RAGState:
         """Generate a response based on the selected documents.
@@ -408,22 +406,16 @@ def create_generator_node(
         """
         if not state["selected_documents"]:
             logger.warning("No documents selected for generation")
-            logger.warning(f"CRITICAL DEBUG - State object ID: {id(state)}")
-            logger.warning(f"CRITICAL DEBUG - Retrieved docs: {len(state['retrieved_documents'])}")
-            logger.warning(f"CRITICAL DEBUG - Reranked docs: {len(state['reranked_documents'])}")
-            logger.warning(f"CRITICAL DEBUG - Selected docs: {len(state['selected_documents'])}")
-            logger.warning(f"CRITICAL DEBUG - Query: {state['query']}")
             set_response(state, "I don't have enough information to answer that question.")
             return state
 
         logger.info("Generating response for query: %s", state["query"])
         logger.info("Selected documents: %d", len(state["selected_documents"]))
-        for i, doc in enumerate(state["selected_documents"]):
-            logger.info(f"Selected doc {i}: text='{doc.text[:100]}...'")
 
         try:
-            # Use our LLM generator
-            return await generator.generate_for_state(state)
+            # Use pre-initialized generator
+            response = await generator.generate_for_state(state)
+            set_response(state, response)
         except Exception as e:
             logger.error("Error generating response: %s", e)
             add_metadata(state, "generator_error", str(e))
